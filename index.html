@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鳥嶼國小英語學習護照v1.5</title>
+    <title>鳥嶼國小英語學習護照 - 拼字語音輔助版</title>
     
     <!-- 載入 Tailwind CSS (樣式) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -59,10 +59,11 @@
             Check: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>,
             X: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
             RotateCcw: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>,
-            Info: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></svg>
+            Info: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></svg>,
+            LifeBuoy: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" x2="9.17" y1="4.93" y2="9.17"/><line x1="14.83" x2="19.07" y1="14.83" y2="19.07"/><line x1="14.83" x2="19.07" y1="9.17" y2="4.93"/><line x1="14.83" x2="18.36" y1="9.17" y2="5.64"/><line x1="4.93" x2="9.17" y1="19.07" y2="14.83"/></svg>
         };
 
-        // --- 資料庫內容 (Updated from PDF) ---
+        // --- 資料庫內容 ---
         const curriculumData = {
           "Grade 3": {
             "Name (名字)": [
@@ -400,7 +401,6 @@
             ],
             "Food (食物2)": [
                 { en: "pizza", zh: "披薩" },
-                { en: "pumpkin", zh: "南瓜" },
                 { en: "rice", zh: "米飯" },
                 { en: "noodles", zh: "麵" },
                 { en: "bread", zh: "麵包" },
@@ -507,15 +507,15 @@
               { en: "go to bed", zh: "上床睡覺" },
               { en: "go to school", zh: "去上學" },
               { en: "go home", zh: "回家" },
+              { en: "have breakfast", zh: "吃早餐" },
+              { en: "have lunch", zh: "吃午餐" },
+              { en: "have dinner", zh: "吃晚餐" },
+              { en: "take a shower", zh: "洗澡" },
               { en: "What time do you get up?", zh: "你幾點起床？" },
               { en: "I get up at six thirty.", zh: "我六點半起床。" },
               { en: "What time does Andy go home?", zh: "安迪幾點回家？" },
               { en: "He goes home at five o'clock.", zh: "他五點回家。" },
               { en: "Have fun!", zh: "玩得愉快！" },
-              { en: "have breakfast", zh: "吃早餐" },
-              { en: "have lunch", zh: "吃午餐" },
-              { en: "have dinner", zh: "吃晚餐" },
-              { en: "take a shower", zh: "洗澡" },
               { en: "Does Mary have breakfast at seven?", zh: "瑪莉七點吃早餐嗎？" },
               { en: "Yes, she does.", zh: "是的。" },
               { en: "Do you have lunch at eleven fifty?", zh: "你11點50分吃午餐嗎？" },
@@ -557,15 +557,15 @@
                 { en: "umbrella", zh: "雨傘" },
                 { en: "glasses", zh: "眼鏡" },
                 { en: "gloves", zh: "手套" },
+                { en: "shoes", zh: "鞋子" },
+                { en: "water bottle", zh: "水瓶" },
+                { en: "bag", zh: "袋子" },
+                { en: "box", zh: "盒子/箱子" },
                 { en: "Whose umbrella is it?", zh: "那是誰的傘？" },
                 { en: "It's Cindy's umbrella.", zh: "是辛蒂的。" },
                 { en: "Whose glasses are they?", zh: "這是誰的眼鏡？" },
                 { en: "They're my glasses.", zh: "我的。" },
                 { en: "Remember your belongings.", zh: "請記得你的隨身物品。" },
-                { en: "shoes", zh: "鞋子" },
-                { en: "water bottle", zh: "水瓶" },
-                { en: "bag", zh: "袋子" },
-                { en: "box", zh: "盒子/箱子" },
                 { en: "Is it your cellphone?", zh: "這是你的手機嗎？" },
                 { en: "No, it's not.", zh: "不是。" },
                 { en: "Are they Peter's gloves?", zh: "這是彼得的手套嗎？" },
@@ -600,14 +600,14 @@
               { en: "go hiking", zh: "健走" },
               { en: "go biking", zh: "騎腳踏車" },
               { en: "go camping", zh: "露營" },
-              { en: "What do you do in your free time?", zh: "你有空的時候會做什麼？" },
-              { en: "I go swimming.", zh: "我會去游泳。" },
-              { en: "What does Daniel do in his free time?", zh: "丹尼爾有空的時候會做什麼？" },
-              { en: "He goes biking.", zh: "他會去騎腳踏車。" },
               { en: "play basketball", zh: "打籃球" },
               { en: "play badminton", zh: "打羽毛球" },
               { en: "play table tennis", zh: "打桌球" },
               { en: "play cards", zh: "打牌" },
+              { en: "What do you do in your free time?", zh: "你有空的時候會做什麼？" },
+              { en: "I go swimming.", zh: "我會去游泳。" },
+              { en: "What does Daniel do in his free time?", zh: "丹尼爾有空的時候會做什麼？" },
+              { en: "He goes biking.", zh: "他會去騎腳踏車。" },
               { en: "Do you go shopping in your free time?", zh: "你有空的時候會去逛街嗎？" },
               { en: "Yes, I do.", zh: "會，我會。" },
               { en: "Does Kevin read books in his free time?", zh: "凱文有空的時候會閱讀嗎？" },
@@ -648,17 +648,11 @@
               { en: "I'm not feeling well.", zh: "我不舒服。" },
               { en: "I have a sweet tooth.", zh: "我喜歡吃甜食。" }
             ],
-            "Places (地點)": [
+            "Places (地點2)": [
                 { en: "bookstore", zh: "書店" },
                 { en: "restaurant", zh: "餐廳" },
                 { en: "bus stop", zh: "公車站" },
                 { en: "train station", zh: "火車站" },
-                { en: "Is there a bus stop nearby?", zh: "這附近有公車站嗎？" },
-                { en: "Yes, there is.", zh: "這附近有。" },
-                { en: "Is there a restaurant nearby?", zh: "這附近有餐廳嗎？" },
-                { en: "No, there isn't.", zh: "這附近沒有。" },
-                { en: "How can we get to the bookstore?", zh: "我們該怎麼去書店？" },
-                { en: "We can get there on foot.", zh: "我們可以走路去。" },
                 { en: "nearby", zh: "附近" },
                 { en: "street", zh: "街道" },
                 { en: "road", zh: "路" },
@@ -666,6 +660,12 @@
                 { en: "movie theater", zh: "電影院" },
                 { en: "night market", zh: "夜市" },
                 { en: "police station", zh: "警察局" },
+                { en: "Is there a bus stop nearby?", zh: "這附近有公車站嗎？" },
+                { en: "Yes, there is.", zh: "這附近有。" },
+                { en: "Is there a restaurant nearby?", zh: "這附近有餐廳嗎？" },
+                { en: "No, there isn't.", zh: "這附近沒有。" },
+                { en: "How can we get to the bookstore?", zh: "我們該怎麼去書店？" },
+                { en: "We can get there on foot.", zh: "我們可以走路去。" },
                 { en: "Where is the supermarket?", zh: "超市在哪裡？" },
                 { en: "It's on Green Street.", zh: "在綠街。" },
                 { en: "Where is the restaurant?", zh: "餐廳在哪裡？" },
@@ -1257,13 +1257,36 @@
           const speak = (text) => {
             if ('speechSynthesis' in window) {
               window.speechSynthesis.cancel();
-              let textToSpeak = text;
+              
+              // 1. 展開縮寫與處理數字 (正規化)
+              let textToSpeak = text
+                .replace(/I'm/g, "I am")
+                .replace(/What's/g, "What is")
+                .replace(/It's/g, "It is")
+                .replace(/You're/g, "You are")
+                .replace(/He's/g, "He is")
+                .replace(/She's/g, "She is")
+                .replace(/They're/g, "They are")
+                .replace(/Where's/g, "Where is")
+                .replace(/don't/g, "do not")
+                .replace(/doesn't/g, "does not")
+                .replace(/can't/g, "cannot")
+                .replace(/isn't/g, "is not");
+
+              // 2. 特殊單字處理
               if (text === 'I') {
                  textToSpeak = "Eye"; 
               }
+
+              // 3. 標點符號加強停頓 (Hack: 替換成逗號或更明顯的停頓符)
+              // 瀏覽器對於 '.' 的停頓有時不明顯，用 ', ' 可以強制停頓
+              textToSpeak = textToSpeak.replace(/[.,?!]/g, ", ");
+
               const utterance = new SpeechSynthesisUtterance(textToSpeak);
               utterance.lang = 'en-US'; 
-              utterance.rate = 0.85; 
+              utterance.rate = 0.85; // 稍微放慢語速
+              utterance.pitch = 1.0; 
+              
               setSpeakingItem(text);
               utterance.onend = () => setSpeakingItem(null);
               window.speechSynthesis.speak(utterance);
@@ -1561,6 +1584,14 @@
                         <div className="text-6xl mb-4 animate-bounce-slow">{getIcon(currentItem.en)}</div>
                         <h3 className="text-2xl font-bold text-gray-800 mb-6">{currentItem.zh}</h3>
                         
+                        <button
+                            onClick={() => speak(currentItem.en)}
+                            className="mb-6 flex items-center justify-center gap-2 w-full max-w-xs px-4 py-2 bg-sky-100 text-sky-600 rounded-full hover:bg-sky-200 transition-all mx-auto"
+                        >
+                            <Icons.Volume2 size={24} />
+                            <span className="font-bold">聽發音 (Listen)</span>
+                        </button>
+
                         {isSentenceMode ? (
                             <div className="w-full">
                                 <div className={`
@@ -1729,4 +1760,3 @@
     </script>
 </body>
 </html>
-
