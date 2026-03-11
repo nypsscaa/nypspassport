@@ -1308,14 +1308,39 @@
                 Object.values(curriculumData[grade]).forEach(t => items.push(...t));
             }
             
-            // 隨機挑選 10 題
-            const shuffled = items.sort(() => Math.random() - 0.5).slice(0, 10);
+            // 先將所有題目打亂
+            let shuffled = [...items].sort(() => Math.random() - 0.5);
             
-            // 為每題隨機分配測驗類型：口說 (speak) 或是 拼寫/重組 (spell)
-            const questions = shuffled.map(item => ({
-                ...item,
-                type: Math.random() > 0.5 ? 'speak' : 'spell'
-            }));
+            // 將題目分為「單字」(不含空格) 與「句子」(含空格) 兩組
+            let words = shuffled.filter(item => !item.en.includes(' '));
+            let sentences = shuffled.filter(item => item.en.includes(' '));
+            
+            let spellItems = [];
+            let speakItems = [];
+
+            // 確保拼寫題(Spell)至少有 1 個單字和 1 個句子
+            if (words.length > 0) spellItems.push(words.pop());
+            if (sentences.length > 0) spellItems.push(sentences.pop());
+
+            // 將剩下的題目合併並再次打亂
+            let remaining = [...words, ...sentences].sort(() => Math.random() - 0.5);
+
+            // 補齊拼寫題到 6 題
+            while (spellItems.length < 6 && remaining.length > 0) {
+                spellItems.push(remaining.pop());
+            }
+
+            // 補齊口說題到 4 題
+            while (speakItems.length < 4 && remaining.length > 0) {
+                speakItems.push(remaining.pop());
+            }
+
+            // 加上題型標籤
+            spellItems = spellItems.map(item => ({ ...item, type: 'spell' }));
+            speakItems = speakItems.map(item => ({ ...item, type: 'speak' }));
+            
+            // 將 10 題合併並打亂出題順序
+            const questions = [...spellItems, ...speakItems].sort(() => Math.random() - 0.5);
             
             setChallengeQuestions(questions);
             setChallengeIndex(0);
