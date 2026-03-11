@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鳥嶼國小英語學習護照ｖ1.6</title>
+    <title>鳥嶼國小英語學習護照 - 綜合挑戰版</title>
     
     <!-- 載入 Tailwind CSS (樣式) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -31,6 +31,13 @@
         }
         .animate-bounce-slow {
             animation: bounce-slow 2s infinite;
+        }
+        @keyframes pulse-fast {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse-fast {
+            animation: pulse-fast 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
         body {
             touch-action: manipulation;
@@ -60,7 +67,7 @@
             X: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
             RotateCcw: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>,
             Info: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></svg>,
-            LifeBuoy: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" x2="9.17" y1="4.93" y2="9.17"/><line x1="14.83" x2="19.07" y1="14.83" y2="19.07"/><line x1="14.83" x2="19.07" y1="9.17" y2="4.93"/><line x1="14.83" x2="18.36" y1="9.17" y2="5.64"/><line x1="4.93" x2="9.17" y1="19.07" y2="14.83"/></svg>
+            Zap: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
         };
 
         // --- 資料庫內容 ---
@@ -679,7 +686,6 @@
         const getIcon = (text) => {
           const lower = text.toLowerCase();
           
-          // Menu Icons
           if (lower.includes('stationery')) return '📏';
           if (lower.includes('number')) return '🔢';
           if (lower.includes('color')) return '🎨';
@@ -705,9 +711,8 @@
           if (lower.includes('belonging')) return '👜';
           if (lower.includes('body')) return '💪';
           if (lower.includes('sick')) return '🤒';
-          if (lower.includes('career')) return '👨‍⚕️'; // New for Career
+          if (lower.includes('career')) return '👨‍⚕️';
 
-          // General & Pronouns
           if (lower === 'i') return '🙋';
           if (lower === 'you') return '👉';
           if (lower.includes('name')) return '📛';
@@ -721,7 +726,6 @@
           if (lower.includes('welcome')) return '😊';
           if (lower.includes('goodbye') || lower.includes('see you')) return '👋';
           
-          // Numbers (Enhanced)
           if (lower.match(/\b(one|1)\b/)) return '1️⃣';
           if (lower.match(/\b(two|2)\b/)) return '2️⃣';
           if (lower.match(/\b(three|3)\b/)) return '3️⃣';
@@ -751,7 +755,6 @@
           if (lower.includes('ninety') || lower.includes('90')) return '9️⃣0️⃣';
           if (lower.includes('hundred')) return '💯';
           
-          // Stationery
           if (lower.includes('pencil')) return '✏️';
           if (lower.includes('pen')) return '🖊️';
           if (lower.includes('ruler')) return '📏';
@@ -762,7 +765,6 @@
           if (lower.includes('glue')) return '🧴';
           if (lower.includes('this') || lower.includes('that')) return '👉';
 
-          // Colors
           if (lower.includes('red')) return '🔴';
           if (lower.includes('blue')) return '🔵';
           if (lower.includes('green')) return '🟢';
@@ -771,7 +773,6 @@
           if (lower.includes('white')) return '⚪';
           if (lower.includes('pink')) return '🌸';
 
-          // Food & Drinks
           if (lower.includes('apple')) return '🍎';
           if (lower.includes('banana')) return '🍌';
           if (lower.includes('egg')) return '🥚';
@@ -799,7 +800,6 @@
           if (lower.includes('fries')) return '🍟';
           if (lower.includes('chocolate')) return '🍫';
 
-          // Fruits & Veggies
           if (lower.includes('orange')) return '🍊';
           if (lower.includes('grape')) return '🍇';
           if (lower.includes('watermelon')) return '🍉';
@@ -814,7 +814,6 @@
           if (lower.includes('mushroom')) return '🍄';
           if (lower.includes('pumpkin')) return '🎃';
 
-          // Animals
           if (lower.includes('dog')) return '🐶';
           if (lower.includes('cat')) return '🐱';
           if (lower.includes('bird')) return '🐦';
@@ -830,7 +829,6 @@
           if (lower.includes('turtle')) return '🐢';
           if (lower.includes('panda')) return '🐼';
 
-          // People & Jobs
           if (lower.includes('father') || lower.includes('dad')) return '👨';
           if (lower.includes('mother') || lower.includes('mom')) return '👩';
           if (lower.includes('brother')) return '👦';
@@ -845,7 +843,6 @@
           if (lower.includes('waiter') || lower.includes('waitress')) return '💁';
           if (lower.includes('fisherman')) return '🎣';
           
-          // Body & Health
           if (lower.includes('eye')) return '👁️';
           if (lower.includes('ear')) return '👂';
           if (lower.includes('nose') || lower.includes('runny')) return '👃';
@@ -865,7 +862,6 @@
           if (lower.includes('leg')) return '🦵';
           if (lower.includes('dizzy')) return '💫';
 
-          // Weather
           if (lower.includes('sunny')) return '☀️';
           if (lower.includes('cloud')) return '☁️';
           if (lower.includes('rain')) return '🌧️';
@@ -875,7 +871,6 @@
           if (lower.includes('hot')) return '🥵';
           if (lower.includes('warm')) return '🌡️';
 
-          // Places
           if (lower.includes('school')) return '🏫';
           if (lower.includes('park')) return '🏞️';
           if (lower.includes('home')) return '🏠';
@@ -901,7 +896,6 @@
           if (lower.includes('stop')) return '🚏';
           if (lower.includes('garage')) return '🚗';
 
-          // Transportation
           if (lower.includes('scooter')) return '🛵';
           if (lower.includes('car')) return '🚗';
           if (lower.includes('bus')) return '🚌';
@@ -913,7 +907,6 @@
           if (lower.includes('taxi')) return '🚕';
           if (lower.includes('walk') || lower.includes('foot')) return '🚶';
 
-          // Actions / Hobbies
           if (lower.includes('sing')) return '🎤';
           if (lower.includes('dance')) return '💃';
           if (lower.includes('swim')) return '🏊';
@@ -939,7 +932,6 @@
           if (lower.includes('shower')) return '🚿';
           if (lower.includes('get up')) return '🌅';
 
-          // Clothing
           if (lower.includes('shirt')) return '👕';
           if (lower.includes('dress')) return '👗';
           if (lower.includes('pants')) return '👖';
@@ -958,7 +950,6 @@
           if (lower.includes('money')) return '💰';
           if (lower.includes('dollar')) return '💵';
 
-          // Countries
           if (lower.includes('taiwan')) return '🇹🇼';
           if (lower.includes('usa')) return '🇺🇸';
           if (lower.includes('uk')) return '🇬🇧';
@@ -968,7 +959,6 @@
           if (lower.includes('egypt')) return '🇪🇬';
           if (lower.includes('canada')) return '🇨🇦';
 
-          // Subjects
           if (lower.includes('chinese')) return '🇹🇼'; 
           if (lower.includes('english')) return '🅰️';
           if (lower.includes('math')) return '➗';
@@ -979,11 +969,9 @@
           if (lower.includes('social')) return '🌏';
           if (lower.includes('computer')) return '💻';
 
-          // Time & Week
           if (lower.includes('day') || lower.includes('week') || lower.includes('mon') || lower.includes('tue') || lower.includes('wed') || lower.includes('thu') || lower.includes('fri') || lower.includes('sat') || lower.includes('sun')) return '📅';
           if (lower.includes('time') || lower.includes('clock') || lower.includes('minute')) return '⏰';
 
-          // Position/Furniture
           if (lower.includes('chair')) return '🪑';
           if (lower.includes('desk') || lower.includes('table')) return '🪑';
           if (lower.includes('drawer')) return '🗄️';
@@ -994,7 +982,7 @@
 
           if (lower.includes('?')) return '❓';
           
-          return '📝'; // Default
+          return '📝'; 
         };
 
         const getSpellingHint = (text) => {
@@ -1018,8 +1006,6 @@
           return `${firstChar}${mask}${lastChar}`;
         };
 
-        // --- 組件 ---
-
         const Header = ({ title, subtitle, onBack }) => (
           <div className="bg-sky-500 text-white p-4 shadow-md flex items-center sticky top-0 z-50">
             {onBack && (
@@ -1036,7 +1022,6 @@
           </div>
         );
 
-        // 新增：糾錯顯示組件
         const CorrectionDisplay = ({ target, spoken }) => {
             const targetWords = target.toLowerCase().replace(/[.,?!]/g, '').split(' ');
             const spokenWords = spoken.toLowerCase().replace(/[.,?!]/g, '').split(' ');
@@ -1051,7 +1036,6 @@
                         </div>
                     </div>
                     
-                    {/* 簡易差異比較 */}
                     <div className="flex flex-wrap gap-1 mt-2">
                         {targetWords.map((word, idx) => {
                             const isMissing = !spokenWords.includes(word);
@@ -1065,19 +1049,18 @@
                             );
                         })}
                     </div>
-                    <p className="text-xs text-gray-500 mt-1 text-right">紅色標示為可能漏讀或發音不清的單字</p>
                 </div>
             );
         };
 
-        const SpeechEvaluator = ({ targetText }) => {
+        // 修改：加入 onSuccess Callback 支援挑戰模式
+        const SpeechEvaluator = ({ targetText, onSuccess }) => {
           const [isListening, setIsListening] = useState(false);
           const [result, setResult] = useState('idle');
           const [transcript, setTranscript] = useState('');
-          const timeoutRef = useRef(null); // New: Timer ref
+          const timeoutRef = useRef(null);
           const recognitionRef = useRef(null);
 
-          // Levenshtein Distance for fuzzy matching
           const getLevenshteinDistance = (a, b) => {
             if (a.length === 0) return b.length;
             if (b.length === 0) return a.length;
@@ -1096,7 +1079,6 @@
             return matrix[b.length][a.length];
           };
 
-          // Number word mapping
           const numberMap = {
             "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four", "5": "five",
             "6": "six", "7": "seven", "8": "eight", "9": "nine", "10": "ten",
@@ -1108,9 +1090,7 @@
 
           const normalizeText = (text) => {
              let str = text.toLowerCase().replace(/[.,?!]/g, '').trim();
-             // Replace simple numbers with words
              str = str.split(' ').map(word => numberMap[word] || word).join(' ');
-             // Expand common contractions
              str = str.replace("it's", "it is").replace("i'm", "i am").replace("what's", "what is");
              return str;
           }
@@ -1124,7 +1104,7 @@
               recognitionRef.current.interimResults = false;
 
               recognitionRef.current.onresult = (event) => {
-                if (timeoutRef.current) clearTimeout(timeoutRef.current); // Clear timeout on success
+                if (timeoutRef.current) clearTimeout(timeoutRef.current);
                 const spokenText = event.results[0][0].transcript;
                 setTranscript(spokenText);
                 evaluate(spokenText, targetText);
@@ -1139,9 +1119,6 @@
               };
 
               recognitionRef.current.onend = () => {
-                // Wait a bit, if result hasn't processed, it might be silence
-                // But usually we handle state in onresult/onerror.
-                // If it ends without result or error, listening stops.
                 if (isListening) setIsListening(false);
               };
             }
@@ -1151,7 +1128,7 @@
           }, [targetText]);
 
           const startListening = (e) => {
-            e.stopPropagation();
+            if (e) e.stopPropagation();
             if (!recognitionRef.current) {
                 alert("您的瀏覽器不支援語音辨識功能 (請使用 Chrome 或 Edge)");
                 return;
@@ -1161,17 +1138,16 @@
             setIsListening(true);
             recognitionRef.current.start();
 
-            // FIX 1: Auto-stop timeout
             if (timeoutRef.current) clearTimeout(timeoutRef.current);
             timeoutRef.current = setTimeout(() => {
                 if (recognitionRef.current) recognitionRef.current.stop();
-                setResult('error'); // Treat timeout as no speech detected or error
+                setResult('error');
                 setIsListening(false);
-            }, 5000); // 5 seconds timeout
+            }, 5000);
           };
 
           const stopListening = (e) => {
-            e.stopPropagation();
+            if (e) e.stopPropagation();
             if (recognitionRef.current) {
               recognitionRef.current.stop();
             }
@@ -1182,9 +1158,9 @@
             const s = normalizeText(spoken);
             const t = normalizeText(target);
 
-            // FIX 2: Fuzzy Logic
             if (s === t || t.includes(s) || s.includes(t)) {
               setResult('success');
+              if (onSuccess) onSuccess(); // 通知父組件
               return;
             }
 
@@ -1192,13 +1168,19 @@
             const maxLength = Math.max(s.length, t.length);
             const similarity = 1 - (distance / maxLength);
 
-            // 80% similarity threshold
             if (similarity > 0.8) {
                 setResult('success');
+                if (onSuccess) onSuccess(); // 通知父組件
             } else {
                 setResult('fail');
             }
           };
+
+          // 讓外部可以重置狀態
+          useEffect(() => {
+              setResult('idle');
+              setTranscript('');
+          }, [targetText]);
 
           return (
             <div className="mt-3 border-t pt-2">
@@ -1208,7 +1190,7 @@
                     {result === 'success' && <span className="text-green-600 font-bold flex items-center gap-1"><Icons.Star size={14} fill="currentColor"/> Perfect!</span>}
                     {result === 'good' && <span className="text-orange-500 font-bold">Good! ({transcript})</span>}
                     {result === 'error' && <span className="text-red-400 text-xs">沒聽到聲音，請再試一次</span>}
-                    {result === 'idle' && <span className="text-gray-400 text-xs">點擊麥克風練習</span>}
+                    {result === 'idle' && <span className="text-gray-400 text-xs">點擊麥克風練習發音</span>}
                 </div>
                 
                 <button 
@@ -1225,7 +1207,6 @@
                 </button>
               </div>
 
-              {/* 糾錯顯示區塊 (只有在 fail 時顯示) */}
               {result === 'fail' && (
                   <CorrectionDisplay target={targetText} spoken={transcript} />
               )}
@@ -1234,9 +1215,10 @@
         };
 
         const App = () => {
+          // Global State
+          const [mode, setMode] = useState('menu'); // menu, learn, game, spelling, challenge_select, challenge_play
           const [currentGrade, setCurrentGrade] = useState(null);
           const [currentTopic, setCurrentTopic] = useState(null);
-          const [mode, setMode] = useState('learn');
           const [speakingItem, setSpeakingItem] = useState(null);
 
           // Game State
@@ -1253,38 +1235,33 @@
           const [spellingStats, setSpellingStats] = useState({ correct: 0, total: 0 });
           const [scrambleParts, setScrambleParts] = useState({ available: [], placed: [] });
 
-          // Speech function
+          // Challenge State
+          const [challengeGrade, setChallengeGrade] = useState('');
+          const [challengeQuestions, setChallengeQuestions] = useState([]);
+          const [challengeIndex, setChallengeIndex] = useState(0);
+          const [challengeScore, setChallengeScore] = useState(0);
+          // 用於挑戰模式內的拼寫邏輯
+          const [chUserSpelling, setChUserSpelling] = useState('');
+          const [chFeedback, setChFeedback] = useState('idle');
+          const [chScrambleParts, setChScrambleParts] = useState({ available: [], placed: [] });
+
+          // --- 核心語音功能 ---
           const speak = (text) => {
             if ('speechSynthesis' in window) {
               window.speechSynthesis.cancel();
               
-              // 1. 展開縮寫與處理數字 (正規化)
               let textToSpeak = text
-                .replace(/I'm/g, "I am")
-                .replace(/What's/g, "What is")
-                .replace(/It's/g, "It is")
-                .replace(/You're/g, "You are")
-                .replace(/He's/g, "He is")
-                .replace(/She's/g, "She is")
-                .replace(/They're/g, "They are")
-                .replace(/Where's/g, "Where is")
-                .replace(/don't/g, "do not")
-                .replace(/doesn't/g, "does not")
-                .replace(/can't/g, "cannot")
-                .replace(/isn't/g, "is not");
+                .replace(/I'm/g, "I am").replace(/What's/g, "What is").replace(/It's/g, "It is")
+                .replace(/You're/g, "You are").replace(/He's/g, "He is").replace(/She's/g, "She is")
+                .replace(/They're/g, "They are").replace(/Where's/g, "Where is").replace(/don't/g, "do not")
+                .replace(/doesn't/g, "does not").replace(/can't/g, "cannot").replace(/isn't/g, "is not");
 
-              // 2. 特殊單字處理
-              if (text === 'I') {
-                 textToSpeak = "Eye"; 
-              }
-
-              // 3. 標點符號加強停頓 (Hack: 替換成逗號或更明顯的停頓符)
-              // 瀏覽器對於 '.' 的停頓有時不明顯，用 ', ' 可以強制停頓
+              if (text === 'I') textToSpeak = "Eye"; 
               textToSpeak = textToSpeak.replace(/[.,?!]/g, ", ");
 
               const utterance = new SpeechSynthesisUtterance(textToSpeak);
               utterance.lang = 'en-US'; 
-              utterance.rate = 0.85; // 稍微放慢語速
+              utterance.rate = 0.85;
               utterance.pitch = 1.0; 
               
               setSpeakingItem(text);
@@ -1293,6 +1270,7 @@
             }
           };
 
+          // --- 各模式初始化 ---
           const initGame = (grade, topic) => {
             const items = curriculumData[grade][topic];
             let cards = items.flatMap((item, index) => [
@@ -1318,23 +1296,158 @@
             setMode('spelling');
           };
 
+          const initChallenge = (grade) => {
+            setChallengeGrade(grade);
+            let items = [];
+            
+            if (grade === 'ALL') {
+                Object.values(curriculumData).forEach(g => {
+                    Object.values(g).forEach(t => items.push(...t));
+                });
+            } else {
+                Object.values(curriculumData[grade]).forEach(t => items.push(...t));
+            }
+            
+            // 隨機挑選 10 題
+            const shuffled = items.sort(() => Math.random() - 0.5).slice(0, 10);
+            
+            // 為每題隨機分配測驗類型：口說 (speak) 或是 拼寫/重組 (spell)
+            const questions = shuffled.map(item => ({
+                ...item,
+                type: Math.random() > 0.5 ? 'speak' : 'spell'
+            }));
+            
+            setChallengeQuestions(questions);
+            setChallengeIndex(0);
+            setChallengeScore(0);
+            setChFeedback('idle');
+            setMode('challenge_play');
+          };
+
+          // --- 拼寫模式邏輯 ---
           useEffect(() => {
             if (mode === 'spelling' && spellingQueue.length > 0 && spellingIndex < spellingQueue.length) {
                 const currentText = spellingQueue[spellingIndex].en;
-                const isSentence = currentText.includes(' ');
-                
-                if (isSentence) {
+                if (currentText.includes(' ')) {
                     const parts = currentText.split(' ');
-                    const shuffled = [...parts].sort(() => Math.random() - 0.5);
-                    setScrambleParts({ available: shuffled, placed: [] });
-                    setSpellingFeedback('idle');
-                } else {
-                    setUserSpelling('');
-                    setSpellingFeedback('idle');
+                    setScrambleParts({ available: [...parts].sort(() => Math.random() - 0.5), placed: [] });
                 }
+                setUserSpelling('');
+                setSpellingFeedback('idle');
             }
           }, [spellingIndex, spellingQueue, mode]);
 
+          // --- 綜合挑戰模式邏輯 ---
+          useEffect(() => {
+              if (mode === 'challenge_play' && challengeQuestions.length > 0 && challengeIndex < 10) {
+                  const q = challengeQuestions[challengeIndex];
+                  setChFeedback('idle');
+                  setChUserSpelling('');
+                  if (q.type === 'spell' && q.en.includes(' ')) {
+                      const parts = q.en.split(' ');
+                      setChScrambleParts({ available: [...parts].sort(() => Math.random() - 0.5), placed: [] });
+                  }
+              }
+          }, [challengeIndex, challengeQuestions, mode]);
+
+          const nextChallengeQuestion = (isCorrect) => {
+              if (isCorrect) {
+                  setChallengeScore(prev => prev + 1);
+              }
+              setChallengeIndex(prev => prev + 1);
+          };
+
+          // 挑戰模式的拼寫檢查
+          const checkChallengeSpelling = () => {
+              const currentItem = challengeQuestions[challengeIndex];
+              const cleanUser = chUserSpelling.trim().toLowerCase();
+              const cleanTarget = currentItem.en.trim().toLowerCase();
+              
+              if (cleanUser === cleanTarget) {
+                  setChFeedback('correct');
+                  speak("Correct! " + (currentItem.en === 'I' ? 'Eye' : currentItem.en));
+                  setTimeout(() => nextChallengeQuestion(true), 1500);
+              } else {
+                  setChFeedback('wrong');
+                  speak("Try again.");
+              }
+          };
+
+          // 挑戰模式的重組選擇
+          const handleChallengeScrambleSelect = (word, index) => {
+            if (chFeedback === 'correct') return;
+            const newAvailable = [...chScrambleParts.available];
+            newAvailable.splice(index, 1);
+            const newPlaced = [...chScrambleParts.placed, word];
+            setChScrambleParts({ available: newAvailable, placed: newPlaced });
+
+            const currentTarget = challengeQuestions[challengeIndex].en;
+            if (newPlaced.length === currentTarget.split(' ').length) {
+                if (newPlaced.join(' ') === currentTarget) {
+                    setChFeedback('correct');
+                    speak("Correct!");
+                    setTimeout(() => nextChallengeQuestion(true), 1500);
+                } else {
+                    setChFeedback('wrong');
+                    speak("Try again.");
+                }
+            }
+          };
+          const handleChallengeScrambleDeselect = (word, index) => {
+            if (chFeedback === 'correct') return;
+            const newPlaced = [...chScrambleParts.placed];
+            newPlaced.splice(index, 1);
+            const newAvailable = [...chScrambleParts.available, word];
+            setChScrambleParts({ available: newAvailable, placed: newPlaced });
+            setChFeedback('idle');
+          };
+
+          // 一般拼寫模式的檢查與重組
+          const checkWordSpelling = () => {
+            const currentItem = spellingQueue[spellingIndex];
+            const cleanUser = userSpelling.trim().toLowerCase();
+            const cleanTarget = currentItem.en.trim().toLowerCase();
+            
+            if (cleanUser === cleanTarget) {
+              setSpellingFeedback('correct');
+              speak("Correct! " + (currentItem.en === 'I' ? 'Eye' : currentItem.en));
+              setSpellingStats(prev => ({ ...prev, correct: prev.correct + 1 }));
+            } else {
+              setSpellingFeedback('wrong');
+              speak("Try again.");
+            }
+          };
+          const handleScrambleSelect = (word, index) => {
+            if (spellingFeedback === 'correct') return;
+            const newAvailable = [...scrambleParts.available];
+            newAvailable.splice(index, 1);
+            const newPlaced = [...scrambleParts.placed, word];
+            setScrambleParts({ available: newAvailable, placed: newPlaced });
+
+            const currentTarget = spellingQueue[spellingIndex].en;
+            const targetParts = currentTarget.split(' ');
+            if (newPlaced.length === targetParts.length) {
+                if (newPlaced.join(' ') === currentTarget) {
+                    setSpellingFeedback('correct');
+                    speak("Correct! " + (currentTarget === 'I' ? 'Eye' : currentTarget));
+                    setSpellingStats(prev => ({ ...prev, correct: prev.correct + 1 }));
+                } else {
+                    setSpellingFeedback('wrong');
+                    speak("Try again.");
+                }
+            }
+          };
+          const handleScrambleDeselect = (word, index) => {
+            if (spellingFeedback === 'correct') return;
+            const newPlaced = [...scrambleParts.placed];
+            newPlaced.splice(index, 1);
+            const newAvailable = [...scrambleParts.available, word];
+            setScrambleParts({ available: newAvailable, placed: newPlaced });
+            setSpellingFeedback('idle');
+          };
+          const nextQuestion = () => setSpellingIndex(prev => prev + 1);
+
+          // 遊戲配對邏輯
           const handleCardClick = (index) => {
             if (isWrong) return;
             if (selectedCards.includes(index)) return;
@@ -1362,100 +1475,59 @@
             }
           };
 
-          const checkWordSpelling = () => {
-            const currentItem = spellingQueue[spellingIndex];
-            const cleanUser = userSpelling.trim().toLowerCase();
-            const cleanTarget = currentItem.en.trim().toLowerCase();
-            
-            if (cleanUser === cleanTarget) {
-              setSpellingFeedback('correct');
-              speak("Correct! " + (currentItem.en === 'I' ? 'Eye' : currentItem.en));
-              setSpellingStats(prev => ({ ...prev, correct: prev.correct + 1 }));
-            } else {
-              setSpellingFeedback('wrong');
-              speak("Try again.");
-            }
-          };
+          // --- 畫面渲染 ---
 
-          const handleScrambleSelect = (word, index) => {
-            if (spellingFeedback === 'correct') return;
-            const newAvailable = [...scrambleParts.available];
-            newAvailable.splice(index, 1);
-            const newPlaced = [...scrambleParts.placed, word];
-            setScrambleParts({ available: newAvailable, placed: newPlaced });
-
-            const currentTarget = spellingQueue[spellingIndex].en;
-            const targetParts = currentTarget.split(' ');
-            if (newPlaced.length === targetParts.length) {
-                if (newPlaced.join(' ') === currentTarget) {
-                    setSpellingFeedback('correct');
-                    speak("Correct! " + (currentTarget === 'I' ? 'Eye' : currentTarget));
-                    setSpellingStats(prev => ({ ...prev, correct: prev.correct + 1 }));
-                } else {
-                    setSpellingFeedback('wrong');
-                    speak("Try again.");
-                }
-            }
-          };
-
-          const handleScrambleDeselect = (word, index) => {
-            if (spellingFeedback === 'correct') return;
-            const newPlaced = [...scrambleParts.placed];
-            newPlaced.splice(index, 1);
-            const newAvailable = [...scrambleParts.available, word];
-            setScrambleParts({ available: newAvailable, placed: newPlaced });
-            setSpellingFeedback('idle');
-          };
-
-          const nextQuestion = () => {
-            if (spellingIndex < spellingQueue.length - 1) {
-                setSpellingIndex(prev => prev + 1);
-            } else {
-                setSpellingIndex(prev => prev + 1);
-            }
-          };
-
-          // --- 渲染畫面 ---
-
-          if (!currentGrade) {
+          // 1. 主畫面 (選擇年級或挑戰)
+          if (mode === 'menu') {
             return (
-              <div className="min-h-screen bg-sky-50 font-sans">
-                <Header title="鳥嶼國小英語護照" subtitle="請選擇你的年級 (Grade)" />
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-                  {Object.keys(curriculumData).map((grade) => (
+              <div className="min-h-screen bg-sky-50 font-sans pb-20">
+                <Header title="鳥嶼國小英語護照" subtitle="請選擇你的年級或挑戰" />
+                
+                <div className="p-6 max-w-4xl mx-auto">
+                    <h2 className="text-xl font-bold text-sky-800 mb-4 flex items-center gap-2"><Icons.BookOpen /> 課程學習 (Learn & Play)</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                    {Object.keys(curriculumData).map((grade) => (
+                        <button
+                        key={grade}
+                        onClick={() => { setCurrentGrade(grade); setMode('learn_topics'); }}
+                        className="bg-white p-6 rounded-2xl shadow-lg border-b-8 border-sky-200 hover:border-sky-300 hover:translate-y-[-2px] transition-all flex flex-col items-center gap-3 group"
+                        >
+                        <div className="w-16 h-16 bg-sky-100 rounded-full flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
+                            {grade.includes('3') ? '🥉' : grade.includes('4') ? '🍀' : grade.includes('5') ? '🖐️' : '🎓'}
+                        </div>
+                        <span className="text-2xl font-bold text-gray-700">{grade}</span>
+                        </button>
+                    ))}
+                    </div>
+
+                    <h2 className="text-xl font-bold text-orange-800 mb-4 flex items-center gap-2"><Icons.Zap /> 綜合挑戰 (Challenge)</h2>
                     <button
-                      key={grade}
-                      onClick={() => setCurrentGrade(grade)}
-                      className="bg-white p-8 rounded-2xl shadow-lg border-b-8 border-sky-200 hover:border-sky-300 hover:translate-y-[-2px] transition-all flex flex-col items-center gap-4 group"
+                        onClick={() => setMode('challenge_select')}
+                        className="w-full bg-gradient-to-r from-orange-400 to-red-500 p-8 rounded-3xl shadow-xl border-b-8 border-orange-700 hover:translate-y-[-2px] transition-all flex flex-col items-center justify-center text-white group"
                     >
-                      <div className="w-20 h-20 bg-sky-100 rounded-full flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">
-                        {grade.includes('3') ? '🥉' : grade.includes('4') ? '🍀' : grade.includes('5') ? '🖐️' : '🎓'}
-                      </div>
-                      <span className="text-2xl font-bold text-gray-700">{grade}</span>
-                      <span className="text-gray-500">點擊開始學習</span>
+                        <Icons.Trophy size={48} className="mb-2 group-hover:scale-110 transition-transform animate-pulse-fast"/>
+                        <span className="text-3xl font-bold tracking-widest">進入挑戰模式</span>
+                        <span className="text-orange-100 mt-2">隨機 10 題測驗，考驗你的實力！</span>
                     </button>
-                  ))}
-                </div>
-                <div className="fixed bottom-0 w-full p-4 text-center text-sky-400 text-sm bg-white/50 backdrop-blur-sm">
-                   Happy English Learning!
                 </div>
               </div>
             );
           }
 
-          if (!currentTopic) {
+          // 2. 選擇學習主題
+          if (mode === 'learn_topics') {
             return (
               <div className="min-h-screen bg-sky-50 font-sans">
                 <Header 
                   title={currentGrade} 
                   subtitle="請選擇主題 (Topic)" 
-                  onBack={() => setCurrentGrade(null)} 
+                  onBack={() => { setCurrentGrade(null); setMode('menu'); }} 
                 />
                 <div className="p-6 grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl mx-auto">
                   {Object.keys(curriculumData[currentGrade]).map((topic) => (
                     <button
                       key={topic}
-                      onClick={() => setCurrentTopic(topic)}
+                      onClick={() => { setCurrentTopic(topic); setMode('learn_items'); }}
                       className="bg-white p-6 rounded-xl shadow border-b-4 border-orange-200 hover:border-orange-300 active:border-b-0 active:translate-y-1 transition-all flex flex-col items-center text-center h-full justify-center"
                     >
                       <span className="text-4xl mb-3">{getIcon(topic)}</span>
@@ -1468,6 +1540,69 @@
             );
           }
 
+          // 3. 學習單字與句型清單
+          if (mode === 'learn_items') {
+            return (
+              <div className="min-h-screen bg-green-50 font-sans pb-40">
+                <Header 
+                  title={`${currentTopic?.split('(')[0]}`} 
+                  subtitle="學習模式: 點擊聽發音 / 錄音 / 拼字" 
+                  onBack={() => { setCurrentTopic(null); setMode('learn_topics'); }} 
+                />
+  
+                <div className="p-4 max-w-3xl mx-auto space-y-4">
+                  {curriculumData[currentGrade][currentTopic].map((item, idx) => (
+                    <div 
+                      key={idx}
+                      onClick={() => speak(item.en)}
+                      className={`
+                        relative bg-white p-5 rounded-2xl shadow-sm border-2 cursor-pointer transition-all transform hover:scale-[1.01] active:scale-[0.99]
+                        ${speakingItem === item.en ? 'border-green-400 ring-2 ring-green-100' : 'border-transparent hover:border-green-200'}
+                      `}
+                    >
+                      <div className="flex items-center gap-5 mb-2">
+                        <div className="w-16 h-16 bg-gradient-to-br from-green-100 to-green-50 rounded-2xl flex items-center justify-center text-4xl flex-shrink-0 shadow-inner">
+                          {getIcon(item.en)}
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-2xl font-bold text-gray-800 mb-1 font-serif tracking-wide">
+                            {item.en}
+                          </h3>
+                          <p className="text-gray-500 text-lg">
+                            {item.zh}
+                          </p>
+                        </div>
+                        <div className={`text-green-500 p-2 rounded-full hover:bg-green-50 ${speakingItem === item.en ? 'animate-bounce' : 'opacity-60'}`}>
+                          <Icons.Volume2 size={28} />
+                        </div>
+                      </div>
+                      <SpeechEvaluator targetText={item.en} />
+                    </div>
+                  ))}
+                </div>
+  
+                <div className="fixed bottom-6 left-0 right-0 flex justify-center px-4 z-20 gap-3">
+                  <button
+                    onClick={() => initGame(currentGrade, currentTopic)}
+                    className="flex-1 max-w-[200px] bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 px-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105 active:scale-95 border-b-4 border-orange-700 active:border-b-0 active:translate-y-1"
+                  >
+                    <Icons.Gamepad2 size={24} />
+                    <span>配對遊戲</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => initSpelling(currentGrade, currentTopic)}
+                    className="flex-1 max-w-[200px] bg-violet-500 hover:bg-violet-600 text-white font-bold py-4 px-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105 active:scale-95 border-b-4 border-violet-700 active:border-b-0 active:translate-y-1"
+                  >
+                    <Icons.Keyboard size={24} />
+                    <span>拼字/重組</span>
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          // 4. 配對遊戲
           if (mode === 'game') {
             const isWin = matchedPairs.length * 2 === gameCards.length;
             return (
@@ -1475,7 +1610,7 @@
                 <Header 
                   title={`${currentTopic?.split('(')[0]} - 配對`} 
                   subtitle="配對練習 (Matching Game)" 
-                  onBack={() => setMode('learn')} 
+                  onBack={() => setMode('learn_items')} 
                 />
                 
                 <div className="p-4 max-w-4xl mx-auto">
@@ -1491,7 +1626,7 @@
                           <Icons.RefreshCw size={20}/> 再玩一次
                         </button>
                         <button 
-                          onClick={() => setMode('learn')}
+                          onClick={() => setMode('learn_items')}
                           className="px-6 py-3 bg-gray-200 text-gray-700 rounded-full font-bold shadow hover:bg-gray-300 flex items-center gap-2"
                         >
                           <Icons.BookOpen size={20}/> 回到學習
@@ -1535,12 +1670,13 @@
             );
           }
 
+          // 5. 單元拼字/重組練習
           if (mode === 'spelling') {
             const showSummary = spellingIndex >= spellingQueue.length;
             if (showSummary) {
                 return (
                     <div className="min-h-screen bg-violet-50 font-sans pb-20">
-                        <Header title="練習結果" onBack={() => setMode('learn')} />
+                        <Header title="練習結果" onBack={() => setMode('learn_items')} />
                         <div className="p-8 max-w-md mx-auto text-center mt-10 bg-white rounded-3xl shadow-xl">
                             <div className="text-6xl mb-4">📝</div>
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">挑戰結束!</h2>
@@ -1554,7 +1690,7 @@
                                 再試一次
                             </button>
                             <button 
-                                onClick={() => setMode('learn')}
+                                onClick={() => setMode('learn_items')}
                                 className="w-full py-3 bg-gray-200 text-gray-700 rounded-xl font-bold shadow hover:bg-gray-300"
                             >
                                 回到學習
@@ -1572,7 +1708,7 @@
                 <Header 
                   title={isSentenceMode ? "句子重組 (Unscramble)" : "拼字挑戰 (Spelling)"} 
                   subtitle={`Question ${spellingIndex + 1} / ${spellingQueue.length}`}
-                  onBack={() => setMode('learn')} 
+                  onBack={() => setMode('learn_items')} 
                 />
                 
                 <div className="p-6 max-w-lg mx-auto flex flex-col items-center gap-6 mt-4">
@@ -1651,7 +1787,6 @@
                                             ${spellingFeedback === 'wrong' ? 'border-red-500 bg-red-50 text-red-700 animate-shake' : ''}
                                         `}
                                         disabled={spellingFeedback === 'correct'}
-                                        autoFocus
                                     />
                                 </div>
                             </div>
@@ -1695,64 +1830,206 @@
             );
           }
 
-          return (
-            <div className="min-h-screen bg-green-50 font-sans pb-40">
-              <Header 
-                title={`${currentTopic?.split('(')[0]}`} 
-                subtitle="學習模式: 點擊聽發音 / 錄音 / 拼字" 
-                onBack={() => setCurrentTopic(null)} 
-              />
-
-              <div className="p-4 max-w-3xl mx-auto space-y-4">
-                {curriculumData[currentGrade][currentTopic].map((item, idx) => (
-                  <div 
-                    key={idx}
-                    onClick={() => speak(item.en)}
-                    className={`
-                      relative bg-white p-5 rounded-2xl shadow-sm border-2 cursor-pointer transition-all transform hover:scale-[1.01] active:scale-[0.99]
-                      ${speakingItem === item.en ? 'border-green-400 ring-2 ring-green-100' : 'border-transparent hover:border-green-200'}
-                    `}
-                  >
-                    <div className="flex items-center gap-5 mb-2">
-                      <div className="w-16 h-16 bg-gradient-to-br from-green-100 to-green-50 rounded-2xl flex items-center justify-center text-4xl flex-shrink-0 shadow-inner">
-                        {getIcon(item.en)}
+          // 6. 綜合挑戰：選擇年級
+          if (mode === 'challenge_select') {
+              return (
+                  <div className="min-h-screen bg-orange-50 font-sans">
+                      <Header title="綜合挑戰" subtitle="選擇你要挑戰的範圍" onBack={() => setMode('menu')} />
+                      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+                        <button
+                            onClick={() => initChallenge('ALL')}
+                            className="bg-gradient-to-r from-red-500 to-orange-500 text-white p-8 rounded-2xl shadow-lg border-b-8 border-red-700 hover:translate-y-[-2px] transition-all flex flex-col items-center gap-3 md:col-span-2"
+                        >
+                            <Icons.Zap size={40} className="animate-pulse" />
+                            <span className="text-2xl font-bold">全部年級大挑戰 (All Grades)</span>
+                            <span className="text-red-100">隨機抽取所有範圍的單字與句型</span>
+                        </button>
+                        {Object.keys(curriculumData).map((grade) => (
+                            <button
+                                key={grade}
+                                onClick={() => initChallenge(grade)}
+                                className="bg-white p-6 rounded-2xl shadow border-b-4 border-orange-200 hover:border-orange-400 hover:translate-y-[-2px] transition-all flex flex-col items-center gap-2 text-orange-800"
+                            >
+                                <span className="text-xl font-bold">{grade}</span>
+                                <span className="text-sm text-gray-500">僅限此年級範圍</span>
+                            </button>
+                        ))}
                       </div>
-                      <div className="flex-1">
-                        <h3 className="text-2xl font-bold text-gray-800 mb-1 font-serif tracking-wide">
-                          {item.en}
-                        </h3>
-                        <p className="text-gray-500 text-lg">
-                          {item.zh}
-                        </p>
-                      </div>
-                      <div className={`text-green-500 p-2 rounded-full hover:bg-green-50 ${speakingItem === item.en ? 'animate-bounce' : 'opacity-60'}`}>
-                        <Icons.Volume2 size={28} />
-                      </div>
-                    </div>
-                    <SpeechEvaluator targetText={item.en} />
                   </div>
-                ))}
-              </div>
+              )
+          }
 
-              <div className="fixed bottom-6 left-0 right-0 flex justify-center px-4 z-20 gap-3">
-                <button
-                  onClick={() => initGame(currentGrade, currentTopic)}
-                  className="flex-1 max-w-[200px] bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 px-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105 active:scale-95 border-b-4 border-orange-700 active:border-b-0 active:translate-y-1"
-                >
-                  <Icons.Gamepad2 size={24} />
-                  <span>配對遊戲</span>
-                </button>
-                
-                <button
-                  onClick={() => initSpelling(currentGrade, currentTopic)}
-                  className="flex-1 max-w-[200px] bg-violet-500 hover:bg-violet-600 text-white font-bold py-4 px-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105 active:scale-95 border-b-4 border-violet-700 active:border-b-0 active:translate-y-1"
-                >
-                  <Icons.Keyboard size={24} />
-                  <span>拼字/重組</span>
-                </button>
-              </div>
-            </div>
-          );
+          // 7. 綜合挑戰：遊戲中
+          if (mode === 'challenge_play') {
+              if (challengeIndex >= 10) {
+                  // 結算畫面
+                  return (
+                    <div className="min-h-screen bg-orange-50 font-sans pb-20">
+                        <Header title="挑戰結束" onBack={() => setMode('challenge_select')} />
+                        <div className="p-8 max-w-md mx-auto text-center mt-10 bg-white rounded-3xl shadow-xl border-4 border-orange-100">
+                            <div className="text-6xl mb-4 text-yellow-500 animate-bounce"><Icons.Trophy size={80} fill="currentColor" className="mx-auto" /></div>
+                            <h2 className="text-3xl font-bold text-orange-600 mb-2">Challenge Complete!</h2>
+                            <p className="text-gray-600 mb-6 font-bold">挑戰範圍: {challengeGrade === 'ALL' ? '全部年級' : challengeGrade}</p>
+                            
+                            <div className="bg-orange-50 rounded-xl p-6 mb-8">
+                                <p className="text-xl text-gray-700 mb-2">你的得分</p>
+                                <p className="text-5xl font-bold text-orange-500">{challengeScore} <span className="text-2xl text-gray-400">/ 10</span></p>
+                            </div>
+
+                            <button 
+                                onClick={() => initChallenge(challengeGrade)}
+                                className="w-full py-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-lg mb-3 hover:bg-orange-600 transition-colors"
+                            >
+                                再挑戰一次
+                            </button>
+                            <button 
+                                onClick={() => setMode('menu')}
+                                className="w-full py-4 bg-gray-200 text-gray-700 rounded-xl font-bold text-lg shadow hover:bg-gray-300 transition-colors"
+                            >
+                                回到首頁
+                            </button>
+                        </div>
+                    </div>
+                  );
+              }
+
+              const q = challengeQuestions[challengeIndex];
+              const isSentence = q.en.includes(' ');
+
+              return (
+                <div className="min-h-screen bg-slate-900 font-sans text-slate-100 pb-20 flex flex-col">
+                    <div className="p-4 flex items-center justify-between bg-slate-800 shadow-md">
+                        <button onClick={() => setMode('challenge_select')} className="text-slate-400 hover:text-white">
+                            <Icons.X size={28} />
+                        </button>
+                        <div className="font-bold text-xl text-orange-400">Question {challengeIndex + 1} / 10</div>
+                        <div className="w-8"></div> {/* Balance flex */}
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full h-1.5 bg-slate-700">
+                        <div className="h-full bg-gradient-to-r from-orange-400 to-red-500 transition-all duration-300" style={{ width: `${(challengeIndex / 10) * 100}%`}}></div>
+                    </div>
+
+                    <div className="flex-1 flex flex-col items-center justify-center p-6">
+                        <div className="bg-slate-800 w-full max-w-lg rounded-3xl p-8 shadow-2xl flex flex-col items-center relative border border-slate-700">
+                            
+                            {/* 題型標籤 */}
+                            <div className={`absolute -top-4 px-4 py-1 rounded-full font-bold text-sm shadow-lg border-2 border-slate-800 ${q.type === 'speak' ? 'bg-sky-400 text-sky-900' : 'bg-violet-400 text-violet-900'}`}>
+                                {q.type === 'speak' ? '🗣️ 口說挑戰 (Speak)' : '📝 聽寫挑戰 (Spell)'}
+                            </div>
+
+                            <div className="text-6xl mb-6 mt-4">{getIcon(q.en)}</div>
+                            <h3 className="text-3xl font-bold text-white mb-8 text-center">{q.zh}</h3>
+
+                            {/* ====== 口說題型 ====== */}
+                            {q.type === 'speak' && (
+                                <div className="w-full flex flex-col items-center">
+                                    <p className="text-2xl text-sky-300 font-bold mb-6 text-center">{q.en}</p>
+                                    <div className="w-full bg-slate-700 rounded-xl p-4">
+                                        <SpeechEvaluator 
+                                            targetText={q.en} 
+                                            onSuccess={() => {
+                                                if (chFeedback !== 'correct') {
+                                                    setChFeedback('correct');
+                                                    setTimeout(() => nextChallengeQuestion(true), 1500);
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ====== 拼寫題型 ====== */}
+                            {q.type === 'spell' && (
+                                <div className="w-full flex flex-col items-center">
+                                    <button
+                                        onClick={() => speak(q.en)}
+                                        className="mb-6 flex items-center justify-center gap-2 w-full max-w-xs px-4 py-3 bg-violet-600/30 text-violet-300 rounded-full hover:bg-violet-600/50 transition-all border border-violet-500/30"
+                                    >
+                                        <Icons.Volume2 size={24} />
+                                        <span className="font-bold">聽發音提示</span>
+                                    </button>
+
+                                    {isSentence ? (
+                                        <div className="w-full">
+                                            <div className={`
+                                                min-h-[80px] w-full bg-slate-900 rounded-xl border-2 border-dashed flex flex-wrap gap-2 p-3 items-center justify-center mb-6 transition-all
+                                                ${chFeedback === 'correct' ? 'border-green-500 bg-green-900/30' : 'border-slate-600'}
+                                                ${chFeedback === 'wrong' ? 'border-red-500 bg-red-900/30 animate-shake' : ''}
+                                            `}>
+                                                {chScrambleParts.placed.length === 0 && <span className="text-slate-500 text-sm">點擊下方單字重組句子</span>}
+                                                {chScrambleParts.placed.map((word, idx) => (
+                                                    <button key={idx} onClick={() => handleChallengeScrambleDeselect(word, idx)} className="bg-slate-700 px-3 py-1 rounded-lg text-white font-bold hover:bg-red-500/50 transition-all">
+                                                        {word}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div className="flex flex-wrap justify-center gap-3">
+                                                {chScrambleParts.available.map((word, idx) => (
+                                                    <button key={idx} onClick={() => handleChallengeScrambleSelect(word, idx)} className="bg-violet-600 px-4 py-2 rounded-lg text-white font-bold shadow-sm hover:bg-violet-500 transition-all">
+                                                        {word}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="w-full relative">
+                                            <input 
+                                                type="text" 
+                                                value={chUserSpelling}
+                                                onChange={(e) => {
+                                                    if (chFeedback !== 'correct') setChUserSpelling(e.target.value);
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && chFeedback === 'idle') checkChallengeSpelling();
+                                                }}
+                                                placeholder="輸入英文單字..."
+                                                className={`
+                                                    w-full p-4 text-center text-xl bg-slate-900 border-2 rounded-xl outline-none transition-all font-bold text-white
+                                                    ${chFeedback === 'idle' ? 'border-slate-600 focus:border-violet-500' : ''}
+                                                    ${chFeedback === 'correct' ? 'border-green-500 text-green-400' : ''}
+                                                    ${chFeedback === 'wrong' ? 'border-red-500 text-red-400 animate-shake' : ''}
+                                                `}
+                                                disabled={chFeedback === 'correct'}
+                                                autoFocus
+                                            />
+                                            {chFeedback === 'idle' && (
+                                                <button onClick={checkChallengeSpelling} className="mt-4 w-full py-3 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-500 transition-colors">
+                                                    檢查答案
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* 成功動畫遮罩 */}
+                            {chFeedback === 'correct' && (
+                                <div className="absolute inset-0 bg-green-500/20 rounded-3xl flex items-center justify-center backdrop-blur-sm z-10">
+                                    <div className="bg-green-500 text-white px-6 py-3 rounded-full font-bold text-2xl shadow-xl flex items-center gap-2 animate-bounce">
+                                        <Icons.Check /> Correct!
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 放棄此題按鈕 */}
+                        {chFeedback !== 'correct' && (
+                            <button 
+                                onClick={() => nextChallengeQuestion(false)}
+                                className="mt-8 text-slate-500 font-bold hover:text-slate-300 transition-colors"
+                            >
+                                不會這題，跳過 (Skip)
+                            </button>
+                        )}
+                    </div>
+                </div>
+              );
+          }
+
+          // Fallback (Should not reach here based on states)
+          return null;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -1760,4 +2037,3 @@
     </script>
 </body>
 </html>
-
