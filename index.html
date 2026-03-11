@@ -2000,6 +2000,12 @@
                                         </div>
                                     ) : (
                                         <div className="w-full relative">
+                                            <div className="bg-slate-900/50 px-6 py-3 rounded-xl mb-6 border border-slate-700">
+                                                <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1 text-center">HINT</p>
+                                                <p className="text-3xl font-mono text-violet-400 font-bold tracking-widest text-center">
+                                                    {getSpellingHint(q.en)}
+                                                </p>
+                                            </div>
                                             <input 
                                                 type="text" 
                                                 value={chUserSpelling}
@@ -2062,4 +2068,3 @@
     </script>
 </body>
 </html>
-
