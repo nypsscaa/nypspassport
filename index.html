@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鳥嶼國小英語學習護照v1.7</title>
+    <title>鳥嶼國小英語學習護照 - 綜合挑戰版</title>
     
     <!-- 載入 Tailwind CSS (樣式) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -1061,6 +1061,12 @@
           const timeoutRef = useRef(null);
           const recognitionRef = useRef(null);
 
+          // 新增：解決 React 閉包 (Stale Closure) 導致無法跳轉下一題的問題
+          const onSuccessRef = useRef(onSuccess);
+          useEffect(() => {
+              onSuccessRef.current = onSuccess;
+          }, [onSuccess]);
+
           const getLevenshteinDistance = (a, b) => {
             if (a.length === 0) return b.length;
             if (b.length === 0) return a.length;
@@ -1119,7 +1125,7 @@
               };
 
               recognitionRef.current.onend = () => {
-                if (isListening) setIsListening(false);
+                setIsListening(false); // 強制重置聆聽狀態，避免閉包錯誤
               };
             }
             return () => {
@@ -1160,7 +1166,7 @@
 
             if (s === t || t.includes(s) || s.includes(t)) {
               setResult('success');
-              if (onSuccess) onSuccess(); // 通知父組件
+              if (onSuccessRef.current) onSuccessRef.current(); // 使用 Ref 通知父組件最新狀態
               return;
             }
 
@@ -1170,7 +1176,7 @@
 
             if (similarity > 0.8) {
                 setResult('success');
-                if (onSuccess) onSuccess(); // 通知父組件
+                if (onSuccessRef.current) onSuccessRef.current(); // 使用 Ref 通知父組件最新狀態
             } else {
                 setResult('fail');
             }
