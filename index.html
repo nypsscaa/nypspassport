@@ -1251,9 +1251,10 @@
           const [chFeedback, setChFeedback] = useState('idle');
           const [chScrambleParts, setChScrambleParts] = useState({ available: [], placed: [] });
 
-          // --- 核心語音功能 ---
+         // --- 核心語音功能 (防卡死增強版) ---
           const speak = (text) => {
             if ('speechSynthesis' in window) {
+              // 1. 先強制取消任何正在排隊或卡住的語音
               window.speechSynthesis.cancel();
               
               let textToSpeak = text
@@ -1269,10 +1270,34 @@
               utterance.lang = 'en-US'; 
               utterance.rate = 0.85;
               utterance.pitch = 1.0; 
+              utterance.volume = 1.0; // 強制設定最大音量
               
               setSpeakingItem(text);
-              utterance.onend = () => setSpeakingItem(null);
-              window.speechSynthesis.speak(utterance);
+
+              // 2. 加入各種事件監聽，防止狀態死鎖
+              utterance.onend = () => {
+                  setSpeakingItem(null);
+              };
+              
+              utterance.onerror = (e) => {
+                  console.warn("語音播放中斷或失敗:", e);
+                  setSpeakingItem(null);
+                  // 如果發生錯誤，嘗試強制重置引擎
+                  window.speechSynthesis.cancel(); 
+              };
+
+              // 3. 使用 setTimeout 稍微延遲播放，這是繞過 iOS Safari 某些 Bug 的黑魔法
+              setTimeout(() => {
+                  window.speechSynthesis.speak(utterance);
+                  
+                  // 4. 針對 iOS 的終極防卡死機制 (Resume Hack)
+                  // 有時 iOS 語音引擎會卡在 "paused" 狀態
+                  if (window.speechSynthesis.paused) {
+                      window.speechSynthesis.resume();
+                  }
+              }, 50);
+            } else {
+                alert("您的瀏覽器不支援語音功能，請更換瀏覽器。");
             }
           };
 
