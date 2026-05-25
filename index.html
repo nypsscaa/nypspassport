@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鳥嶼國小英語學習護照v1.8</title>
+    <title>鳥嶼國小英語學習護照v1.9</title>
     
     <!-- 載入 Tailwind CSS (樣式) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -1053,7 +1053,6 @@
             );
         };
 
-        // 修改：加入 onSuccess Callback 支援挑戰模式
         const SpeechEvaluator = ({ targetText, onSuccess }) => {
           const [isListening, setIsListening] = useState(false);
           const [result, setResult] = useState('idle');
@@ -1061,7 +1060,6 @@
           const timeoutRef = useRef(null);
           const recognitionRef = useRef(null);
 
-          // 新增：解決 React 閉包 (Stale Closure) 導致無法跳轉下一題的問題
           const onSuccessRef = useRef(onSuccess);
           useEffect(() => {
               onSuccessRef.current = onSuccess;
@@ -1125,7 +1123,7 @@
               };
 
               recognitionRef.current.onend = () => {
-                setIsListening(false); // 強制重置聆聽狀態，避免閉包錯誤
+                setIsListening(false);
               };
             }
             return () => {
@@ -1166,7 +1164,7 @@
 
             if (s === t || t.includes(s) || s.includes(t)) {
               setResult('success');
-              if (onSuccessRef.current) onSuccessRef.current(); // 使用 Ref 通知父組件最新狀態
+              if (onSuccessRef.current) onSuccessRef.current(); 
               return;
             }
 
@@ -1176,13 +1174,12 @@
 
             if (similarity > 0.8) {
                 setResult('success');
-                if (onSuccessRef.current) onSuccessRef.current(); // 使用 Ref 通知父組件最新狀態
+                if (onSuccessRef.current) onSuccessRef.current(); 
             } else {
                 setResult('fail');
             }
           };
 
-          // 讓外部可以重置狀態
           useEffect(() => {
               setResult('idle');
               setTranscript('');
@@ -1221,19 +1218,16 @@
         };
 
         const App = () => {
-          // Global State
-          const [mode, setMode] = useState('menu'); // menu, learn, game, spelling, challenge_select, challenge_play
+          const [mode, setMode] = useState('menu'); 
           const [currentGrade, setCurrentGrade] = useState(null);
           const [currentTopic, setCurrentTopic] = useState(null);
           const [speakingItem, setSpeakingItem] = useState(null);
 
-          // Game State
           const [gameCards, setGameCards] = useState([]);
           const [selectedCards, setSelectedCards] = useState([]);
           const [matchedPairs, setMatchedPairs] = useState([]);
           const [isWrong, setIsWrong] = useState(false);
 
-          // Spelling State
           const [spellingQueue, setSpellingQueue] = useState([]);
           const [spellingIndex, setSpellingIndex] = useState(0);
           const [userSpelling, setUserSpelling] = useState('');
@@ -1241,20 +1235,17 @@
           const [spellingStats, setSpellingStats] = useState({ correct: 0, total: 0 });
           const [scrambleParts, setScrambleParts] = useState({ available: [], placed: [] });
 
-          // Challenge State
           const [challengeGrade, setChallengeGrade] = useState('');
           const [challengeQuestions, setChallengeQuestions] = useState([]);
           const [challengeIndex, setChallengeIndex] = useState(0);
           const [challengeScore, setChallengeScore] = useState(0);
-          // 用於挑戰模式內的拼寫邏輯
           const [chUserSpelling, setChUserSpelling] = useState('');
           const [chFeedback, setChFeedback] = useState('idle');
           const [chScrambleParts, setChScrambleParts] = useState({ available: [], placed: [] });
 
-         // --- 核心語音功能 (防卡死增強版) ---
+          // --- 核心語音功能 (防卡死增強版) ---
           const speak = (text) => {
             if ('speechSynthesis' in window) {
-              // 1. 先強制取消任何正在排隊或卡住的語音
               window.speechSynthesis.cancel();
               
               let textToSpeak = text
@@ -1270,11 +1261,10 @@
               utterance.lang = 'en-US'; 
               utterance.rate = 0.85;
               utterance.pitch = 1.0; 
-              utterance.volume = 1.0; // 強制設定最大音量
+              utterance.volume = 1.0; 
               
               setSpeakingItem(text);
 
-              // 2. 加入各種事件監聽，防止狀態死鎖
               utterance.onend = () => {
                   setSpeakingItem(null);
               };
@@ -1282,16 +1272,12 @@
               utterance.onerror = (e) => {
                   console.warn("語音播放中斷或失敗:", e);
                   setSpeakingItem(null);
-                  // 如果發生錯誤，嘗試強制重置引擎
                   window.speechSynthesis.cancel(); 
               };
 
-              // 3. 使用 setTimeout 稍微延遲播放，這是繞過 iOS Safari 某些 Bug 的黑魔法
               setTimeout(() => {
                   window.speechSynthesis.speak(utterance);
                   
-                  // 4. 針對 iOS 的終極防卡死機制 (Resume Hack)
-                  // 有時 iOS 語音引擎會卡在 "paused" 狀態
                   if (window.speechSynthesis.paused) {
                       window.speechSynthesis.resume();
                   }
@@ -1301,7 +1287,6 @@
             }
           };
 
-          // --- 各模式初始化 ---
           const initGame = (grade, topic) => {
             const items = curriculumData[grade][topic];
             let cards = items.flatMap((item, index) => [
@@ -1339,38 +1324,30 @@
                 Object.values(curriculumData[grade]).forEach(t => items.push(...t));
             }
             
-            // 先將所有題目打亂
             let shuffled = [...items].sort(() => Math.random() - 0.5);
             
-            // 將題目分為「單字」(不含空格) 與「句子」(含空格) 兩組
             let words = shuffled.filter(item => !item.en.includes(' '));
             let sentences = shuffled.filter(item => item.en.includes(' '));
             
             let spellItems = [];
             let speakItems = [];
 
-            // 確保拼寫題(Spell)至少有 1 個單字和 1 個句子
             if (words.length > 0) spellItems.push(words.pop());
             if (sentences.length > 0) spellItems.push(sentences.pop());
 
-            // 將剩下的題目合併並再次打亂
             let remaining = [...words, ...sentences].sort(() => Math.random() - 0.5);
 
-            // 補齊拼寫題到 6 題
             while (spellItems.length < 6 && remaining.length > 0) {
                 spellItems.push(remaining.pop());
             }
 
-            // 補齊口說題到 4 題
             while (speakItems.length < 4 && remaining.length > 0) {
                 speakItems.push(remaining.pop());
             }
 
-            // 加上題型標籤
             spellItems = spellItems.map(item => ({ ...item, type: 'spell' }));
             speakItems = speakItems.map(item => ({ ...item, type: 'speak' }));
             
-            // 將 10 題合併並打亂出題順序
             const questions = [...spellItems, ...speakItems].sort(() => Math.random() - 0.5);
             
             setChallengeQuestions(questions);
@@ -1380,7 +1357,6 @@
             setMode('challenge_play');
           };
 
-          // --- 拼寫模式邏輯 ---
           useEffect(() => {
             if (mode === 'spelling' && spellingQueue.length > 0 && spellingIndex < spellingQueue.length) {
                 const currentText = spellingQueue[spellingIndex].en;
@@ -1393,7 +1369,6 @@
             }
           }, [spellingIndex, spellingQueue, mode]);
 
-          // --- 綜合挑戰模式邏輯 ---
           useEffect(() => {
               if (mode === 'challenge_play' && challengeQuestions.length > 0 && challengeIndex < 10) {
                   const q = challengeQuestions[challengeIndex];
@@ -1413,7 +1388,6 @@
               setChallengeIndex(prev => prev + 1);
           };
 
-          // 挑戰模式的拼寫檢查
           const checkChallengeSpelling = () => {
               const currentItem = challengeQuestions[challengeIndex];
               const cleanUser = chUserSpelling.trim().toLowerCase();
@@ -1429,7 +1403,6 @@
               }
           };
 
-          // 挑戰模式的重組選擇
           const handleChallengeScrambleSelect = (word, index) => {
             if (chFeedback === 'correct') return;
             const newAvailable = [...chScrambleParts.available];
@@ -1458,7 +1431,6 @@
             setChFeedback('idle');
           };
 
-          // 一般拼寫模式的檢查與重組
           const checkWordSpelling = () => {
             const currentItem = spellingQueue[spellingIndex];
             const cleanUser = userSpelling.trim().toLowerCase();
@@ -1503,7 +1475,6 @@
           };
           const nextQuestion = () => setSpellingIndex(prev => prev + 1);
 
-          // 遊戲配對邏輯
           const handleCardClick = (index) => {
             if (isWrong) return;
             if (selectedCards.includes(index)) return;
@@ -1531,9 +1502,7 @@
             }
           };
 
-          // --- 畫面渲染 ---
-
-          // 1. 主畫面 (選擇年級或挑戰)
+          // 1. 主畫面
           if (mode === 'menu') {
             return (
               <div className="min-h-screen bg-sky-50 font-sans pb-20">
@@ -1827,11 +1796,14 @@
                                         type="text" 
                                         value={userSpelling}
                                         onChange={(e) => {
-                                            if (spellingFeedback !== 'correct') setUserSpelling(e.target.value);
+                                            if (spellingFeedback !== 'correct') {
+                                                setUserSpelling(e.target.value);
+                                                if (spellingFeedback === 'wrong') setSpellingFeedback('idle');
+                                            }
                                         }}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
-                                                if (spellingFeedback === 'idle') checkWordSpelling();
+                                                if (spellingFeedback !== 'correct') checkWordSpelling();
                                                 else if (spellingFeedback === 'correct') nextQuestion();
                                             }
                                         }}
@@ -1843,6 +1815,7 @@
                                             ${spellingFeedback === 'wrong' ? 'border-red-500 bg-red-50 text-red-700 animate-shake' : ''}
                                         `}
                                         disabled={spellingFeedback === 'correct'}
+                                        autoFocus
                                     />
                                 </div>
                             </div>
@@ -1918,7 +1891,6 @@
           // 7. 綜合挑戰：遊戲中
           if (mode === 'challenge_play') {
               if (challengeIndex >= 10) {
-                  // 結算畫面
                   return (
                     <div className="min-h-screen bg-orange-50 font-sans pb-20">
                         <Header title="挑戰結束" onBack={() => setMode('challenge_select')} />
@@ -1959,10 +1931,9 @@
                             <Icons.X size={28} />
                         </button>
                         <div className="font-bold text-xl text-orange-400">Question {challengeIndex + 1} / 10</div>
-                        <div className="w-8"></div> {/* Balance flex */}
+                        <div className="w-8"></div>
                     </div>
 
-                    {/* Progress Bar */}
                     <div className="w-full h-1.5 bg-slate-700">
                         <div className="h-full bg-gradient-to-r from-orange-400 to-red-500 transition-all duration-300" style={{ width: `${(challengeIndex / 10) * 100}%`}}></div>
                     </div>
@@ -1970,7 +1941,6 @@
                     <div className="flex-1 flex flex-col items-center justify-center p-6">
                         <div className="bg-slate-800 w-full max-w-lg rounded-3xl p-8 shadow-2xl flex flex-col items-center relative border border-slate-700">
                             
-                            {/* 題型標籤 */}
                             <div className={`absolute -top-4 px-4 py-1 rounded-full font-bold text-sm shadow-lg border-2 border-slate-800 ${q.type === 'speak' ? 'bg-sky-400 text-sky-900' : 'bg-violet-400 text-violet-900'}`}>
                                 {q.type === 'speak' ? '🗣️ 口說挑戰 (Speak)' : '📝 聽寫挑戰 (Spell)'}
                             </div>
@@ -1978,7 +1948,6 @@
                             <div className="text-6xl mb-6 mt-4">{getIcon(q.en)}</div>
                             <h3 className="text-3xl font-bold text-white mb-8 text-center">{q.zh}</h3>
 
-                            {/* ====== 口說題型 ====== */}
                             {q.type === 'speak' && (
                                 <div className="w-full flex flex-col items-center">
                                     <p className="text-2xl text-sky-300 font-bold mb-6 text-center">{q.en}</p>
@@ -1996,7 +1965,6 @@
                                 </div>
                             )}
 
-                            {/* ====== 拼寫題型 ====== */}
                             {q.type === 'spell' && (
                                 <div className="w-full flex flex-col items-center">
                                     <button
@@ -2041,10 +2009,13 @@
                                                 type="text" 
                                                 value={chUserSpelling}
                                                 onChange={(e) => {
-                                                    if (chFeedback !== 'correct') setChUserSpelling(e.target.value);
+                                                    if (chFeedback !== 'correct') {
+                                                        setChUserSpelling(e.target.value);
+                                                        if (chFeedback === 'wrong') setChFeedback('idle');
+                                                    }
                                                 }}
                                                 onKeyDown={(e) => {
-                                                    if (e.key === 'Enter' && chFeedback === 'idle') checkChallengeSpelling();
+                                                    if (e.key === 'Enter' && chFeedback !== 'correct') checkChallengeSpelling();
                                                 }}
                                                 placeholder="輸入英文單字..."
                                                 className={`
@@ -2056,7 +2027,7 @@
                                                 disabled={chFeedback === 'correct'}
                                                 autoFocus
                                             />
-                                            {chFeedback === 'idle' && (
+                                            {chFeedback !== 'correct' && (
                                                 <button onClick={checkChallengeSpelling} className="mt-4 w-full py-3 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-500 transition-colors">
                                                     檢查答案
                                                 </button>
@@ -2066,7 +2037,6 @@
                                 </div>
                             )}
 
-                            {/* 成功動畫遮罩 */}
                             {chFeedback === 'correct' && (
                                 <div className="absolute inset-0 bg-green-500/20 rounded-3xl flex items-center justify-center backdrop-blur-sm z-10">
                                     <div className="bg-green-500 text-white px-6 py-3 rounded-full font-bold text-2xl shadow-xl flex items-center gap-2 animate-bounce">
@@ -2076,7 +2046,6 @@
                             )}
                         </div>
 
-                        {/* 放棄此題按鈕 */}
                         {chFeedback !== 'correct' && (
                             <button 
                                 onClick={() => nextChallengeQuestion(false)}
@@ -2090,7 +2059,6 @@
               );
           }
 
-          // Fallback (Should not reach here based on states)
           return null;
         };
 
@@ -2099,4 +2067,3 @@
     </script>
 </body>
 </html>
-
