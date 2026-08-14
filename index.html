@@ -112,12 +112,15 @@
         const classSeatKey = (className, seat) =>
           `${className}__${seat}`.replace(/[\/\.\#\$\[\]]/g, '_').toLowerCase();
 
-        // 學校目前的班級 (以年級為單位)，登入畫面下拉選單的預設值。
-        // 如果之後 Firestore 的 /config/classes 有資料，會優先用那份；
-        // 這裡只是還沒設定時的備用預設值，所以不用特別再去 Firebase Console 建一次。
-        const DEFAULT_CLASSES = ['三年級', '四年級', '五年級', '六年級'];
-        // 每班大概人數，只是登入畫面座號欄位旁邊的小提示文字，不是強制限制。
-        const CLASS_SEAT_COUNTS = { '三年級': 5, '四年級': 2, '五年級': 5, '六年級': 6 };
+        // 學校目前的班級 (以年級為單位)，登入畫面下拉選單的預設值，一定會出現
+        // (不管 Firestore 的 /config/classes 有沒有資料都會顯示，見下面 mergeClasses)。
+        // 「測試」是專門給老師自己測試登入流程用的班級，只有 1 個座號。
+        const DEFAULT_CLASSES = ['三年級', '四年級', '五年級', '六年級', '測試'];
+        // 每班座號有幾號，登入畫面座號下拉選單的選項數量就是照這個範圍產生的。
+        const CLASS_SEAT_COUNTS = { '三年級': 5, '四年級': 2, '五年級': 5, '六年級': 6, '測試': 1 };
+        // 把「預設班級」跟「Firestore 上老師後來新增的班級」合併、去重，這樣
+        // 「測試」這個班級不會因為老師之後用後台新增了別的班級就消失不見。
+        const mergeClasses = (list) => Array.from(new Set([...DEFAULT_CLASSES, ...(list || [])]));
 
         // 老師只有固定三位、共用同一組密碼，不用個別註冊帳號。
         // 第一次用某個名字登入時，系統會自動用這組密碼建立該老師的帳號；
@@ -2732,7 +2735,7 @@
         );
 
         const StudentLoginScreen = ({ classesList, onLogin, onBack, error, busy }) => {
-          const effectiveClasses = classesList.length > 0 ? classesList : DEFAULT_CLASSES;
+          const effectiveClasses = mergeClasses(classesList);
           const [className, setClassName] = useState(effectiveClasses[0] || '');
           const [seat, setSeat] = useState('');
           const [password, setPassword] = useState('');
@@ -3399,7 +3402,7 @@
             return (
               <TeacherDashboard
                 teacherName={teacherProfile.name}
-                classesList={classesList.length > 0 ? classesList : DEFAULT_CLASSES}
+                classesList={mergeClasses(classesList)}
                 onAddClass={teacherAddClass}
                 onAddStudent={teacherAddStudent}
                 onStampTask={teacherStampTask}
