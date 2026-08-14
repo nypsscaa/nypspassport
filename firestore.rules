@@ -43,6 +43,15 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------------
+    // /customWords/{grade} : 老師自訂單字/單元，合併進題庫用。
+    // 學生登入前後都要讀得到才能出題，所以開放公開讀取；只有老師能寫入。
+    // ---------------------------------------------------------------
+    match /customWords/{grade} {
+      allow read: if true;
+      allow write: if isTeacher(request.auth.uid);
+    }
+
+    // ---------------------------------------------------------------
     // /teachers/{uid} : 老師帳號資料
     // 允許使用者讀取「自己」對應的文件 (用來判斷登入者是不是老師)。
     // 只有一蓁/逸蓁/士頡這三個帳號可以自動建立 (第一次登入時)。
@@ -91,9 +100,11 @@ service cloud.firestore {
           request.resource.data.name is string &&
           request.resource.data.className is string);
 
+      // 學生本人也可以寫入 mistakes (答錯題目的錯題本，加強練習用) 和
+      // badges (徽章)，一樣不能碰姓名/班級/座號等身分欄位。
       allow update: if isTeacher(request.auth.uid) ||
         (isSelf(studentId) &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progress']));
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progress', 'mistakes', 'badges']));
 
       allow delete: if isTeacher(request.auth.uid);
 

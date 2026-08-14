@@ -94,6 +94,37 @@
         const topicKey = (grade, topic) =>
           `${grade}__${topic}`.replace(/[\/\.\#\$\[\]]/g, '_');
 
+        // 把「年級」+「主題」+「單字/句子」轉成可以放進 mistakes 欄位的安全 key
+        const mistakeKey = (grade, topic, en) =>
+          `${topicKey(grade, topic)}__${en}`.replace(/[\/\.\#\$\[\]]/g, '_');
+
+        // 算出一個 Firestore Timestamp 距離現在幾天，讀不到就回傳 null
+        // (Firestore Timestamp 有 .toDate()；剛寫入還沒同步回來時可能是
+        // pending 狀態的物件，沒有 toDate，這種情況一律當作「還不知道」)
+        const daysSince = (timestamp) => {
+          if (!timestamp) return null;
+          const d = typeof timestamp.toDate === 'function'
+            ? timestamp.toDate()
+            : (timestamp.seconds ? new Date(timestamp.seconds * 1000) : null);
+          if (!d || isNaN(d.getTime())) return null;
+          return (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+        };
+
+        // 找出一個學生「最近一次有任何關卡活動」的時間 (掃過 progress 裡每個
+        // 任務的 updatedAt，取最新的一筆)，讀不到任何紀錄就回傳 null。
+        // 給老師後台的「待關心名單」用，判斷這個學生是不是已經好一陣子沒練習了。
+        const studentLastActivityDate = (progress) => {
+          let latest = null;
+          Object.values(progress || {}).forEach(p => {
+            if (!p || !p.updatedAt) return;
+            const d = typeof p.updatedAt.toDate === 'function'
+              ? p.updatedAt.toDate()
+              : (p.updatedAt.seconds ? new Date(p.updatedAt.seconds * 1000) : null);
+            if (d && !isNaN(d.getTime()) && (!latest || d > latest)) latest = d;
+          });
+          return latest;
+        };
+
         // 把「班級」+「座號」轉成 Firebase Auth 用的虛擬 email
         // (學生不需要真的擁有 email，只是借用 Firebase Auth 的帳密機制。
         //  班級名稱可能包含中文，所以先做 URL 編碼確保只剩英數字元，
@@ -137,9 +168,30 @@
         const STAGE_ORDER = ['speak', 'match', 'listen', 'look', 'arrange', 'spell'];
         const STAGE_LABEL = { speak: '口說練習', match: '配對遊戲', listen: '聽得懂', look: '看得懂', arrange: '排得出來', spell: '拼得出來' };
         const STAGE_ICON = { speak: '🗣️', match: '🧠', listen: '🎧', look: '👀', arrange: '🧩', spell: '⌨️' };
+
+        // 徽章目錄。因為學生不是每天登入 (只有上英語課才會用系統)，所以徽章
+        // 刻意不設計成「連續登入天數」這種每天型的機制，而是看「累積練習成果」。
+        // 大部分徽章都是從既有的 progress 資料即時算出來的 (isEarned)，不用
+        // 額外寫入 Firestore；只有 event: true 的徽章 (目前只有字母配對遊戲)
+        // 是「發生過一次就算」的事件型成就，需要另外寫進 badges 欄位保存起來。
+        const BADGE_DEFS = [
+          { id: 'stamp_master', emoji: '🏅', title: '蓋章達人', desc: '累積蓋章完成 5 個任務',
+            isEarned: (ctx) => ctx.stampedCount >= 5 },
+          { id: 'speak_warrior', emoji: '🗣️', title: '口說小勇士', desc: '通過 5 個單元的口說關卡',
+            isEarned: (ctx) => ctx.stageCounts.speak >= 5 },
+          { id: 'match_master', emoji: '🧠', title: '配對高手', desc: '通過 5 個單元的配對關卡',
+            isEarned: (ctx) => ctx.stageCounts.match >= 5 },
+          { id: 'spell_king', emoji: '⌨️', title: '拼字王', desc: '通過 5 個單元的拼字關卡',
+            isEarned: (ctx) => ctx.stageCounts.spell >= 5 },
+          { id: 'cross_grade', emoji: '🌟', title: '跨年級達成', desc: '每個年級都至少蓋章完成一個任務',
+            isEarned: (ctx) => ctx.grades.length > 0 && ctx.grades.every(g => ctx.stampedGradeSet.has(g)) },
+          { id: 'alphabet_master', emoji: '🔤', title: '字母配對高手', desc: '完成一次字母大小寫配對遊戲', event: true },
+        ];
         // 點數只由老師「蓋章」核發，不再由系統自動給，避免被竄改，
         // 也讓「蓋章」這個動作本身變成老師肯定學生的儀式感。
         const TASK_STAMP_POINTS = 5;
+        // 超過幾天沒有任何關卡活動，就算「好久沒複習/需要關心」
+        const STALE_DAYS = 14;
 
         const isStageUnlocked = (topicProgress, stage) => {
           const idx = STAGE_ORDER.indexOf(stage);
@@ -193,7 +245,7 @@
         };
 
         // --- 資料庫內容 ---
-        const curriculumData = {
+        const BUILTIN_CURRICULUM = {
           "Grade 3": {
             "Name (名字)": [
               { en: "I", zh: "我" },
@@ -803,6 +855,38 @@
           }
         };
 
+        // curriculumData æ¯ãå§å»ºé¡åº« + èå¸«èªè¨é¡åº«ãåä½µå¾ççµæã
+        // ç¨ let (å¯è®çæ¨¡çµå±¤ç´è®æ¸) èä¸æ¯ constï¼æ¯å çº buildChoices ç­
+        // å½å¼é½æ¯ç´æ¥è®éåè®æ¸æ¬èº« (ä¸æ¯éé React props)ï¼åªè¦èå¸«æ°å¢
+        // å®å­å¾éæ°æå® curriculumDataï¼å¨é¨ç¨å¼ç¢¼å°±æèªååå°æ°è³æï¼
+        // å®å¨ä¸ç¨æ¹ä»»ä½å¼å« curriculumData çå°æ¹ã
+        let curriculumData = BUILTIN_CURRICULUM;
+
+        // æèå¸«å¨å¾å°æ°å¢çèªè¨å®å­/å®ååä½µé²å§å»ºé¡åº«ã
+        // customWordsByGrade æ ¼å¼ï¼{ "Grade 3": { "æå®å": [{en,zh}, ...] }, ... }
+        // - å¦æå®ååç¨±è·å§å»ºçä¸æ¨£ï¼èªè¨å®å­æãéå ãå¨å¾é¢ (ä¸æè¦èå§å»ºçå­)ã
+        // - å¦ææ¯å¨æ°çå®ååç¨±æ¢ä¸»æè®æéåå¹´ç´åºä¸ä¸åæ°çå®åã
+        const mergeCurriculum = (builtin, customWordsByGrade) => {
+          if (!customWordsByGrade || Object.keys(customWordsByGrade).length === 0) return builtin;
+          const merged = {};
+          Object.keys(builtin).forEach(grade => {
+            merged[grade] = {};
+            Object.keys(builtin[grade]).forEach(topic => {
+              merged[grade][topic] = [...builtin[grade][topic]];
+            });
+          });
+          Object.entries(customWordsByGrade).forEach(([grade, topics]) => {
+            if (!merged[grade]) merged[grade] = {};
+            Object.entries(topics || {}).forEach(([topic, items]) => {
+              const existing = merged[grade][topic] || [];
+              const existingEn = new Set(existing.map(it => it.en));
+              const newItems = (items || []).filter(it => it && it.en && !existingEn.has(it.en));
+              merged[grade][topic] = [...existing, ...newItems];
+            });
+          });
+          return merged;
+        };
+
         // --- 字母練習資料 (主要給三年級熟悉字母大小寫、字母名稱與發音例字用) ---
         // 說明：瀏覽器的語音功能沒辦法唸出單獨的「音標音」(例如 A 的 /æ/)，
         // 所以這裡實際做的是「字母名稱」(唸 A 這個字母本身) + 「例字」(Apple)，
@@ -1377,7 +1461,7 @@
           );
         };
 
-        const LearningApp = ({ studentId, studentName, englishName, className, seatNumber, progress, totalPoints, onStagePass, onExit }) => {
+        const LearningApp = ({ studentId, studentName, englishName, className, seatNumber, progress, totalPoints, mistakes, badges, onStagePass, onMistake, onClearMistake, onBadgeEarn, onExit }) => {
           const [mode, setMode] = useState('menu');
           const [currentGrade, setCurrentGrade] = useState(null);
           const [currentTopic, setCurrentTopic] = useState(null);
@@ -1397,6 +1481,7 @@
           const [spellingStats, setSpellingStats] = useState({ correct: 0, total: 0 });
           const [scrambleParts, setScrambleParts] = useState({ available: [], placed: [] });
           const [stageReported, setStageReported] = useState(false);
+          const [alphabetBadgeReported, setAlphabetBadgeReported] = useState(false);
 
           // 口說練習 state：一題一題輪流用麥克風唸，偵測不到的題目會被記下來，
           // 最後如果沒有全部通過，會請學生去找老師手動過關 (麥克風常誤判)。
@@ -1505,6 +1590,7 @@
             setMatchedPairs([]);
             setSelectedCards([]);
             setIsWrong(false);
+            setAlphabetBadgeReported(false);
             setMode('alphabet_game');
           };
 
@@ -1568,7 +1654,16 @@
             const correct = choice === currentItem.zh;
             setQuizSelected(choice);
             setQuizFeedback(correct ? 'correct' : 'wrong');
-            if (correct) setQuizScore(prev => prev + 1);
+            if (correct) {
+              setQuizScore(prev => prev + 1);
+              // 加強複習模式：答對了就把這一題從錯題本移除
+              if (mode === 'mistake_review' && onClearMistake && currentItem.mistakeKey) {
+                onClearMistake(currentItem.mistakeKey);
+              }
+            } else if (mode !== 'mistake_review' && onMistake) {
+              // 一般聽力/閱讀測驗答錯：記錄到錯題本，讓學生之後可以加強複習
+              onMistake(currentGrade, currentTopic, currentItem, quizStageName);
+            }
           };
 
           const nextQuizQuestion = () => {
@@ -1578,12 +1673,34 @@
               return;
             }
             setQuizIndex(nextIndex);
-            setQuizChoices(buildChoices(currentGrade, currentTopic, quizQueue[nextIndex]));
+            const nextItem = quizQueue[nextIndex];
+            const nextGrade = mode === 'mistake_review' ? nextItem.grade : currentGrade;
+            const nextTopic = mode === 'mistake_review' ? nextItem.topic : currentTopic;
+            setQuizChoices(buildChoices(nextGrade, nextTopic, nextItem));
             setQuizSelected(null);
             setQuizFeedback('idle');
             if (quizStageName === 'listen') {
-              setTimeout(() => speak(quizQueue[nextIndex].en), 300);
+              setTimeout(() => speak(nextItem.en), 300);
             }
+          };
+
+          // 加強複習 (錯題本)：把 mistakes 欄位裡的題目集合起來，用同一套
+          // 聽力/閱讀選擇題畫面重新出題，橫跨不同單元也沒關係，因為每一題
+          // 都自己記著自己的 grade/topic/mistakeKey。
+          const initMistakeReview = () => {
+            const items = Object.entries(mistakes || {}).map(([key, m]) => ({
+              en: m.en, zh: m.zh, grade: m.grade, topic: m.topic, mistakeKey: key,
+            })).sort(() => Math.random() - 0.5);
+            if (items.length === 0) return;
+            setQuizStageName('review');
+            setQuizQueue(items);
+            setQuizIndex(0);
+            setQuizChoices(buildChoices(items[0].grade, items[0].topic, items[0]));
+            setQuizSelected(null);
+            setQuizFeedback('idle');
+            setQuizScore(0);
+            setStageReported(false);
+            setMode('mistake_review');
           };
 
           const initChallenge = (grade) => {
@@ -1673,6 +1790,17 @@
               onStagePass && onStagePass(currentGrade, currentTopic, 'match', gameCards.length / 2);
             }
           }, [mode, matchedPairs, gameCards, stageReported]);
+
+          // 字母大小寫配對遊戲全部配完時，發一個「字母配對高手」徽章 (事件型
+          // 成就，只有這個需要另外寫進 badges 欄位保存，因為這個遊戲本身沒有
+          // 對應到任何 progress 任務可以拿來當作已完成的依據)。
+          useEffect(() => {
+            if (mode === 'alphabet_game' && gameCards.length > 0 &&
+                matchedPairs.length * 2 === gameCards.length && !alphabetBadgeReported) {
+              setAlphabetBadgeReported(true);
+              onBadgeEarn && onBadgeEarn('alphabet_master');
+            }
+          }, [mode, matchedPairs, gameCards, alphabetBadgeReported]);
 
           // 口說練習全部題目都用麥克風唸對時，回報進度；只要有題目一直偵測不到、
           // 學生按了「跳過」，這關就不會自動過，要等老師在後台聽學生唸過、手動過關。
@@ -1908,6 +2036,36 @@
             const startedCount = allTopicKeys.filter(([g, t]) => progress[topicKey(g, t)]).length;
             const stampedCount = allTopicKeys.filter(([g, t]) => (progress[topicKey(g, t)] || {}).stamped).length;
 
+            // 複習提醒：已經蓋章完成、但超過 STALE_DAYS 天沒有任何關卡活動的任務，
+            // 特別列出來提醒學生回去複習一下 (progress[tk].updatedAt 每次
+            // 過關都會更新，所以可以拿來當作「上次練習這個任務的時間」)。
+            const staleTasks = allTopicKeys.filter(([g, t]) => {
+              const p = progress[topicKey(g, t)];
+              if (!p || !p.stamped) return false;
+              const days = daysSince(p.updatedAt);
+              return days !== null && days >= STALE_DAYS;
+            });
+
+            // 徽章：算出各關卡分別通過了幾個單元、蓋章的年級有哪些，
+            // 拿去跟 BADGE_DEFS 的條件比對，決定哪些徽章已經解鎖。
+            const stageCounts = { speak: 0, match: 0, listen: 0, look: 0, arrange: 0, spell: 0 };
+            const stampedGradeSet = new Set();
+            allTopicKeys.forEach(([g, t]) => {
+              const p = progress[topicKey(g, t)];
+              if (!p) return;
+              STAGE_ORDER.forEach(st => { if (p[st]) stageCounts[st]++; });
+              if (p.stamped) stampedGradeSet.add(g);
+            });
+            const badgeCtx = {
+              stampedCount, stageCounts, stampedGradeSet,
+              grades: Object.keys(curriculumData),
+            };
+            const earnedBadgeIds = new Set(badges || []);
+            const badgeStatus = BADGE_DEFS.map(b => ({
+              ...b,
+              earned: b.event ? earnedBadgeIds.has(b.id) : b.isEarned(badgeCtx),
+            }));
+
             return (
               <div className="min-h-screen bg-indigo-50 font-sans pb-20">
                 <Header title="我的學習護照" subtitle={`已蓋章 ${stampedCount} 個任務 · 已開始 ${startedCount} 個任務`} onBack={() => setMode('menu')} />
@@ -1917,6 +2075,60 @@
                     <Icons.Star size={28} className="text-yellow-400" fill="currentColor" />
                     <span className="text-3xl font-bold text-gray-700">{totalPoints ?? 0}</span>
                     <span className="text-gray-400">點</span>
+                  </div>
+
+                  {mistakes && Object.keys(mistakes).length > 0 && (
+                    <button
+                      onClick={initMistakeReview}
+                      className="w-full mb-6 bg-gradient-to-r from-pink-400 to-rose-500 p-5 rounded-2xl shadow-xl border-b-4 border-pink-700 hover:translate-y-[-2px] transition-all flex items-center gap-4 text-white"
+                    >
+                      <span className="text-4xl">🎯</span>
+                      <div className="text-left flex-1">
+                        <div className="text-xl font-bold">加強練習 (錯題本)</div>
+                        <div className="text-pink-50 text-sm mt-1">還有 {Object.keys(mistakes).length} 題答錯過的題目，複習一下、答對就會從清單移除！</div>
+                      </div>
+                    </button>
+                  )}
+
+                  {staleTasks.length > 0 && (
+                    <div className="w-full mb-6 bg-amber-50 border-2 border-amber-200 rounded-2xl p-5">
+                      <h3 className="font-bold text-amber-800 mb-1 flex items-center gap-2">
+                        <span className="text-2xl">📅</span> 好久沒複習囉！
+                      </h3>
+                      <p className="text-sm text-amber-600 mb-3">這些任務已經超過 {STALE_DAYS} 天沒有練習了，點一下回去複習吧</p>
+                      <div className="flex flex-wrap gap-2">
+                        {staleTasks.map(([g, t]) => (
+                          <button
+                            key={`${g}__${t}`}
+                            onClick={() => { setCurrentGrade(g); setCurrentTopic(t); setMode('learn_items'); }}
+                            className="px-4 py-2 bg-white border-2 border-amber-300 rounded-full text-amber-700 font-bold text-sm hover:bg-amber-100 transition-colors"
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="w-full mb-8 bg-white rounded-2xl shadow p-5">
+                    <h3 className="font-bold text-indigo-700 mb-1 flex items-center gap-2">
+                      <span className="text-2xl">🏆</span> 我的徽章
+                    </h3>
+                    <p className="text-sm text-gray-400 mb-4">
+                      已解鎖 {badgeStatus.filter(b => b.earned).length} / {badgeStatus.length} 個徽章
+                    </p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {badgeStatus.map(b => (
+                        <div
+                          key={b.id}
+                          className={`rounded-2xl p-4 text-center border-2 ${b.earned ? 'bg-yellow-50 border-yellow-300' : 'bg-gray-50 border-gray-100 opacity-50'}`}
+                        >
+                          <div className="text-4xl mb-1">{b.emoji}</div>
+                          <div className="font-bold text-sm text-gray-700">{b.title}</div>
+                          <div className="text-xs text-gray-400 mt-1">{b.desc}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   {Object.keys(curriculumData).map(grade => (
@@ -2531,13 +2743,38 @@
             );
           }
 
-          // 5c. 聽力測驗 (聽得懂) / 5d. 閱讀理解測驗 (看得懂)
-          if (mode === 'listen_quiz' || mode === 'read_quiz') {
+          // 5c. 聽力測驗 (聽得懂) / 5d. 閱讀理解測驗 (看得懂) / 5e. 加強複習 (錯題本)
+          if (mode === 'listen_quiz' || mode === 'read_quiz' || mode === 'mistake_review') {
             const isListen = mode === 'listen_quiz';
-            const stageColor = isListen ? 'sky' : 'emerald';
+            const isReview = mode === 'mistake_review';
+            const stageColor = isReview ? 'pink' : isListen ? 'sky' : 'emerald';
             const showSummary = quizIndex >= quizQueue.length;
 
             if (showSummary) {
+              if (isReview) {
+                const allCleared = quizQueue.length > 0 && quizScore === quizQueue.length;
+                return (
+                  <div className={`min-h-screen bg-${stageColor}-50 font-sans pb-20`}>
+                    <Header title="複習結果" onBack={() => setMode('my_passport')} />
+                    <div className="p-8 max-w-md mx-auto text-center mt-10 bg-white rounded-3xl shadow-xl">
+                      <div className="text-6xl mb-4">{allCleared ? '🎉' : '💪'}</div>
+                      <h2 className="text-2xl font-bold text-gray-800 mb-2">{allCleared ? '太棒了，都複習完了！' : '再加油一下！'}</h2>
+                      <p className="text-xl text-gray-600 mb-2">
+                        這次答對: <span className="font-bold text-3xl text-green-600">{quizScore}</span> / {quizQueue.length}
+                      </p>
+                      <p className="text-sm text-gray-400 mb-6">
+                        {allCleared ? '錯題本已經清空囉！' : '答對的題目已經從錯題本移除，還沒答對的下次會再出現'}
+                      </p>
+                      <button
+                        onClick={() => setMode('my_passport')}
+                        className={`w-full py-3 bg-${stageColor}-500 text-white rounded-xl font-bold shadow hover:bg-${stageColor}-600`}
+                      >
+                        回到我的學習護照
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
               const passThreshold = Math.ceil(quizQueue.length * 0.8);
               const passed = quizScore >= passThreshold;
               return (
@@ -2573,9 +2810,9 @@
             return (
               <div className={`min-h-screen bg-${stageColor}-50 font-sans pb-20`}>
                 <Header
-                  title={isListen ? '聽力測驗 (聽得懂)' : '閱讀理解 (看得懂)'}
+                  title={isReview ? '加強複習 (錯題本)' : isListen ? '聽力測驗 (聽得懂)' : '閱讀理解 (看得懂)'}
                   subtitle={`Question ${quizIndex + 1} / ${quizQueue.length}　答對 ${quizScore} 題`}
-                  onBack={() => setMode('learn_items')}
+                  onBack={() => setMode(isReview ? 'my_passport' : 'learn_items')}
                 />
                 <div className="p-6 max-w-lg mx-auto flex flex-col items-center gap-6 mt-4">
                   <div className="bg-white p-8 rounded-3xl shadow-lg w-full flex flex-col items-center relative overflow-hidden">
@@ -2592,10 +2829,20 @@
                         <span className="text-xs font-bold text-sky-500">點擊再聽一次</span>
                       </button>
                     ) : (
-                      <h3 className="text-4xl font-bold text-gray-800 mb-8 mt-4 font-serif text-center">{currentItem.en}</h3>
+                      <>
+                        <h3 className="text-4xl font-bold text-gray-800 mb-2 mt-4 font-serif text-center">{currentItem.en}</h3>
+                        {isReview && (
+                          <button
+                            onClick={() => speak(currentItem.en)}
+                            className="mb-6 flex items-center justify-center gap-2 px-4 py-2 bg-pink-100 text-pink-600 rounded-full hover:bg-pink-200 transition-all"
+                          >
+                            <Icons.Volume2 size={18} /> <span className="font-bold text-sm">聽發音</span>
+                          </button>
+                        )}
+                      </>
                     )}
 
-                    <p className="text-sm text-gray-400 mb-4">請選出正確的中文意思</p>
+                    <p className={`text-sm text-gray-400 mb-4 ${isListen ? '' : 'mt-2'}`}>請選出正確的中文意思</p>
                     <div className="w-full grid grid-cols-1 gap-3">
                       {quizChoices.map((choice, idx) => {
                         const isCorrectChoice = choice === currentItem.zh;
@@ -2988,7 +3235,7 @@
         };
 
         // --- 老師後台：班級管理 + 學生名冊 + 進度儀表板 + 加點 ---
-        const TeacherDashboard = ({ teacherName, classesList, onAddClass, onAddStudent, onStampTask, onAwardPoints, onResetPassword, onOverrideSpeak, onExit }) => {
+        const TeacherDashboard = ({ teacherName, classesList, onAddClass, onAddStudent, onStampTask, onAwardPoints, onResetPassword, onOverrideSpeak, onAddCustomWord, onExit }) => {
           const [selectedClass, setSelectedClass] = useState(classesList[0] || '');
           const [students, setStudents] = useState([]);
           const [pointsMap, setPointsMap] = useState({});
@@ -3007,6 +3254,10 @@
           const [resetBusy, setResetBusy] = useState(false);
           const [resetError, setResetError] = useState('');
           const [resetDoneMsg, setResetDoneMsg] = useState('');
+          const [showAddWord, setShowAddWord] = useState(false);
+          const [newWord, setNewWord] = useState({ grade: Object.keys(curriculumData)[0] || '', topic: '', en: '', zh: '' });
+          const [addWordBusy, setAddWordBusy] = useState(false);
+          const [addWordMsg, setAddWordMsg] = useState('');
 
           useEffect(() => {
             if (!selectedClass) { setStudents([]); return; }
@@ -3051,6 +3302,23 @@
               setAddStudentError(e.message || '新增失敗，請確認座號是否重複');
             }
             setAddStudentBusy(false);
+          };
+
+          const handleAddCustomWord = async () => {
+            setAddWordMsg('');
+            if (!newWord.grade || !newWord.topic.trim() || !newWord.en.trim() || !newWord.zh.trim()) {
+              setAddWordMsg('請完整填寫年級、單元、英文、中文');
+              return;
+            }
+            setAddWordBusy(true);
+            try {
+              await onAddCustomWord(newWord.grade, newWord.topic.trim(), newWord.en, newWord.zh);
+              setAddWordMsg(`已新增「${newWord.en}」到「${newWord.topic.trim()}」單元！`);
+              setNewWord(w => ({ ...w, en: '', zh: '' }));
+            } catch (e) {
+              setAddWordMsg(e.message || '新增失敗');
+            }
+            setAddWordBusy(false);
           };
 
           const submitAward = async () => {
@@ -3098,6 +3366,30 @@
             setResetBusy(false);
           };
 
+          // 待關心名單：這個班級裡「完全還沒開始練習」或「超過 STALE_DAYS 天
+          // 沒有任何關卡活動」的學生，讓老師一眼就能看出誰需要多關心一下。
+          const attentionList = students.filter(s => {
+            const progress = s.progress || {};
+            if (Object.keys(progress).length === 0) return true;
+            const lastDate = studentLastActivityDate(progress);
+            if (!lastDate) return true;
+            const days = (Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24);
+            return days >= STALE_DAYS;
+          });
+
+          // 全班常錯單字 Top 5：把每個學生的 mistakes 欄位彙總起來，
+          // 依照答錯次數排序，讓老師知道全班共通的加強重點是什麼。
+          const mistakeTally = {};
+          students.forEach(s => {
+            Object.values(s.mistakes || {}).forEach(m => {
+              if (!m || !m.en) return;
+              if (!mistakeTally[m.en]) mistakeTally[m.en] = { en: m.en, zh: m.zh, count: 0, studentCount: 0 };
+              mistakeTally[m.en].count += (m.count || 1);
+              mistakeTally[m.en].studentCount += 1;
+            });
+          });
+          const topMistakes = Object.values(mistakeTally).sort((a, b) => b.count - a.count).slice(0, 5);
+
           return (
             <div className="min-h-screen bg-orange-50 font-sans pb-20">
               <Header
@@ -3127,6 +3419,81 @@
                     </button>
                   </div>
                 </div>
+
+                <div className="bg-white rounded-2xl shadow p-4 mb-6">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="font-bold text-gray-700 flex items-center gap-2"><Icons.BookOpen size={18} /> 自訂單字</h3>
+                    <button onClick={() => setShowAddWord(v => !v)} className="text-sm font-bold text-orange-500 hover:underline">
+                      {showAddWord ? '取消' : '+ 新增單字'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-2">可以加到現有單元 (單元名稱打得跟現有的一樣)，也可以打新的單元名稱來建立全新單元，學生馬上就會看到。</p>
+                  {showAddWord && (
+                    <div className="bg-orange-50 rounded-xl p-4 grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+                      <div>
+                        <label className="text-xs font-bold text-gray-400">年級</label>
+                        <select value={newWord.grade} onChange={e => setNewWord(w => ({ ...w, grade: e.target.value }))} className="w-full p-2 border-2 border-gray-200 rounded-lg outline-none">
+                          {Object.keys(curriculumData).map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-400">單元 (可打新的)</label>
+                        <input list="topic-options" value={newWord.topic} onChange={e => setNewWord(w => ({ ...w, topic: e.target.value }))} className="w-full p-2 border-2 border-gray-200 rounded-lg outline-none" />
+                        <datalist id="topic-options">
+                          {Object.keys(curriculumData[newWord.grade] || {}).map(t => <option key={t} value={t} />)}
+                        </datalist>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-400">英文</label>
+                        <input value={newWord.en} onChange={e => setNewWord(w => ({ ...w, en: e.target.value }))} className="w-full p-2 border-2 border-gray-200 rounded-lg outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-400">中文意思</label>
+                        <input value={newWord.zh} onChange={e => setNewWord(w => ({ ...w, zh: e.target.value }))} className="w-full p-2 border-2 border-gray-200 rounded-lg outline-none" />
+                      </div>
+                      <button disabled={addWordBusy} onClick={handleAddCustomWord} className="py-2 bg-orange-500 text-white rounded-lg font-bold hover:bg-orange-600 disabled:opacity-50">
+                        {addWordBusy ? '新增中...' : '確認新增'}
+                      </button>
+                      {addWordMsg && <p className="text-sm text-orange-600 md:col-span-5">{addWordMsg}</p>}
+                    </div>
+                  )}
+                </div>
+
+                {selectedClass && !loading && students.length > 0 && (attentionList.length > 0 || topMistakes.length > 0) && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    {attentionList.length > 0 && (
+                      <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4">
+                        <h3 className="font-bold text-red-700 mb-1 flex items-center gap-2">
+                          <span className="text-xl">🙋</span> 待關心名單
+                        </h3>
+                        <p className="text-xs text-red-500 mb-3">還沒開始練習，或超過 {STALE_DAYS} 天沒有任何關卡活動</p>
+                        <div className="flex flex-wrap gap-2">
+                          {attentionList.map(s => (
+                            <span key={s.id} className="px-3 py-1.5 bg-white border-2 border-red-200 rounded-full text-red-600 font-bold text-sm">
+                              {s.seatNumber}號 {s.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {topMistakes.length > 0 && (
+                      <div className="bg-indigo-50 border-2 border-indigo-200 rounded-2xl p-4">
+                        <h3 className="font-bold text-indigo-700 mb-1 flex items-center gap-2">
+                          <span className="text-xl">📊</span> 全班常錯 Top 5
+                        </h3>
+                        <p className="text-xs text-indigo-500 mb-3">彙整全班學生的錯題本，答錯次數最多的單字/句子</p>
+                        <ol className="space-y-1">
+                          {topMistakes.map((m, i) => (
+                            <li key={m.en} className="flex items-center justify-between text-sm">
+                              <span className="text-indigo-800"><span className="font-bold mr-1">{i + 1}.</span>{m.en}<span className="text-indigo-400 ml-1">({m.zh})</span></span>
+                              <span className="text-indigo-500 font-bold">答錯 {m.count} 次 · {m.studentCount} 人</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {selectedClass && (
                   <div className="bg-white rounded-2xl shadow p-4 mb-6">
@@ -3338,11 +3705,27 @@
           const [classesList, setClassesList] = useState([]);
           const [loginError, setLoginError] = useState('');
           const [busy, setBusy] = useState(false);
+          // 只是用來在 curriculumData (模組層級變數) 被老師新增的單字改變後，
+          // 強迫整棵元件樹重新 render，讓大家讀到新資料。這個值本身不會被用來
+          // 顯示任何東西，純粹是個「重新渲染訊號」。
+          const [curriculumVersion, setCurriculumVersion] = useState(0);
 
           useEffect(() => {
             db.collection('config').doc('classes').onSnapshot(doc => {
               setClassesList((doc.exists && doc.data().names) || []);
             });
+          }, []);
+
+          // 老師自訂單字：/customWords/{grade} 文件，每個文件的 topics 欄位是
+          // { 單元名稱: [{en,zh}, ...] }。合併進 curriculumData 讓全站自動吃到。
+          useEffect(() => {
+            const unsub = db.collection('customWords').onSnapshot(snap => {
+              const byGrade = {};
+              snap.forEach(doc => { byGrade[doc.id] = (doc.data() || {}).topics || {}; });
+              curriculumData = mergeCurriculum(BUILTIN_CURRICULUM, byGrade);
+              setCurriculumVersion(v => v + 1);
+            });
+            return () => unsub();
           }, []);
 
           useEffect(() => {
@@ -3496,9 +3879,54 @@
             }, { merge: true });
           };
 
+          // 學生答錯聽力/閱讀測驗題目時，記錄到 mistakes 欄位 (錯題本)；
+          // 之後在「加強練習」複習答對了，再用 onClearMistake 把這一題移除。
+          const onMistake = async (grade, topic, item, stage) => {
+            if (!studentProfile) return;
+            const key = mistakeKey(grade, topic, item.en);
+            const studentRef = db.collection('students').doc(studentProfile.id);
+            await studentRef.set({
+              mistakes: {
+                [key]: {
+                  grade, topic, en: item.en, zh: item.zh, stage,
+                  count: firebase.firestore.FieldValue.increment(1),
+                  updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                }
+              }
+            }, { merge: true });
+          };
+
+          const onClearMistake = async (key) => {
+            if (!studentProfile || !key) return;
+            const studentRef = db.collection('students').doc(studentProfile.id);
+            await studentRef.set({
+              mistakes: { [key]: firebase.firestore.FieldValue.delete() }
+            }, { merge: true });
+          };
+
+          // 事件型徽章：目前只有「字母配對高手」用到，發生過一次就記錄下來，
+          // arrayUnion 本身就有防重複的效果，重複呼叫也不會出現兩次。
+          const onBadgeEarn = async (badgeId) => {
+            if (!studentProfile || !badgeId) return;
+            const studentRef = db.collection('students').doc(studentProfile.id);
+            await studentRef.set({
+              badges: firebase.firestore.FieldValue.arrayUnion(badgeId)
+            }, { merge: true });
+          };
+
           const teacherAddClass = (name) => {
             db.collection('config').doc('classes').set({
               names: firebase.firestore.FieldValue.arrayUnion(name)
+            }, { merge: true });
+          };
+
+          // 老師新增自訂單字：可以加到既有單元 (topic 名稱打得跟現有的一樣)，
+          // 也可以直接打一個新的單元名稱來建立全新單元。
+          const teacherAddCustomWord = async (grade, topic, en, zh) => {
+            await db.collection('customWords').doc(grade).set({
+              topics: {
+                [topic]: firebase.firestore.FieldValue.arrayUnion({ en: en.trim(), zh: zh.trim() })
+              }
             }, { merge: true });
           };
 
@@ -3625,6 +4053,7 @@
                 onAwardPoints={teacherAwardPoints}
                 onResetPassword={teacherResetPassword}
                 onOverrideSpeak={teacherOverrideSpeak}
+                onAddCustomWord={teacherAddCustomWord}
                 onExit={logout}
               />
             );
@@ -3640,7 +4069,12 @@
                 seatNumber={studentProfile.seatNumber}
                 progress={studentProfile.progress || {}}
                 totalPoints={totalPoints}
+                mistakes={studentProfile.mistakes || {}}
+                badges={studentProfile.badges || []}
                 onStagePass={onStagePass}
+                onMistake={onMistake}
+                onClearMistake={onClearMistake}
+                onBadgeEarn={onBadgeEarn}
                 onExit={logout}
               />
             );
