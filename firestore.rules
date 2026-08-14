@@ -1,0 +1,120 @@
+rules_version = '2';
+
+// =====================================================================
+// 鳥嶼國小英語學習護照 - Firestore 安全規則
+// 使用方式：Firebase Console -> Firestore Database -> 規則(Rules)，
+// 把這個檔案的內容整個貼上去，然後按「發布」。
+// =====================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isTeacher(uid) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/teachers/$(uid));
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // 只有這三個老師專用的「合成帳號」信箱可以自助建立 /teachers 文件，
+    // 這樣就算有人猜到共用密碼，也沒辦法用別的名字冒充老師帳號。
+    // 這三個值是用程式碼裡 teacherNameToEmail('一蓁' / '逸蓁' / '士頡') 算出來的，
+    // 如果以後要增減老師名單，記得同時改 index.html 的 TEACHER_NAMES 和這裡。
+    function isAllowedTeacherEmail(email) {
+      return email in [
+        'teacher-_e4_b8_80_e8_93_81@nypspassport.local', // 一蓁
+        'teacher-_e9_80_b8_e8_93_81@nypspassport.local', // 逸蓁
+        'teacher-_e5_a3_ab_e9_a0_a1@nypspassport.local'  // 士頡
+      ];
+    }
+
+    // ---------------------------------------------------------------
+    // /config/classes : 班級清單，登入前的下拉選單要用，開放公開讀取。
+    // ---------------------------------------------------------------
+    match /config/classes {
+      allow read: if true;
+      allow write: if isTeacher(request.auth.uid);
+    }
+
+    // ---------------------------------------------------------------
+    // /teachers/{uid} : 老師帳號資料
+    // 允許使用者讀取「自己」對應的文件 (用來判斷登入者是不是老師)。
+    // 只有一蓁/逸蓁/士頡這三個帳號可以自動建立 (第一次登入時)。
+    // ---------------------------------------------------------------
+    match /teachers/{uid} {
+      allow read: if isSelf(uid);
+      allow create: if isSelf(uid) &&
+        isAllowedTeacherEmail(request.auth.token.email) &&
+        request.resource.data.keys().hasAll(['name', 'email']) &&
+        request.resource.data.name is string &&
+        request.resource.data.email is string;
+      allow update, delete: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // /classSeat/{seatId} : 「班級+座號」目前對應到哪個帳號 (email)。
+    // 登入前就要讀得到 (才能知道要用哪個帳號嘗試登入)，所以開放公開讀取。
+    // 學生第一次登入自己建立帳號時，可以建立「指向自己」的一筆 (email 要
+    // 剛好等於自己 token 上的 email，防止假冒別的座號)；老師可以隨時建立
+    // 或更新，這就是「老師幫學生重置密碼」的機制。
+    // ---------------------------------------------------------------
+    match /classSeat/{seatId} {
+      allow read: if true;
+      allow create: if isTeacher(request.auth.uid) ||
+        (isSignedIn() && request.resource.data.email == request.auth.token.email);
+      allow update: if isTeacher(request.auth.uid);
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // /students/{studentId} : 學生資料 (含 progress 學習進度 map)
+    // - 學生本人可以讀取自己的資料；老師可以讀取任何學生 (後台總覽用)。
+    // - 學生第一次登入時可以「自己」建立帳號資料 (自助設定密碼流程)；
+    //   老師後台也保留手動新增學生的功能，兩種方式都可以。
+    // - 學生本人只能更新 progress 欄位 (完成關卡、看到解鎖狀態)，
+    //   不能改自己的姓名/班級/座號；老師則可以修改任何欄位 (蓋章、改名、轉班)。
+    // ---------------------------------------------------------------
+    match /students/{studentId} {
+      allow read: if isSelf(studentId) || isTeacher(request.auth.uid);
+
+      allow create: if
+        (isTeacher(request.auth.uid) &&
+          request.resource.data.keys().hasAll(['name', 'className', 'seatNumber'])) ||
+        (isSelf(studentId) &&
+          request.resource.data.keys().hasAll(['name', 'className', 'seatNumber']) &&
+          request.resource.data.name is string &&
+          request.resource.data.className is string);
+
+      allow update: if isTeacher(request.auth.uid) ||
+        (isSelf(studentId) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progress']));
+
+      allow delete: if isTeacher(request.auth.uid);
+
+      // -----------------------------------------------------------
+      // /students/{studentId}/pointLogs/{logId} : 點數紀錄 (只能新增，
+      // 不能修改/刪除，維持「流水帳」完整性；要更正點數請開一筆新紀錄)。
+      // 點數只由老師核發 (蓋章任務 +5，或後台手動加點/扣點)，
+      // 學生完全沒有寫入點數的權限，不用擔心被竄改。
+      // -----------------------------------------------------------
+      match /pointLogs/{logId} {
+        allow read: if isSelf(studentId) || isTeacher(request.auth.uid);
+
+        allow create: if isTeacher(request.auth.uid) &&
+          request.resource.data.source == 'teacher' &&
+          request.resource.data.delta is number &&
+          request.resource.data.delta >= -100 &&
+          request.resource.data.delta <= 100 &&
+          request.resource.data.reason is string;
+
+        allow update, delete: if false;
+      }
+    }
+  }
+}

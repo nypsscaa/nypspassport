@@ -15,6 +15,11 @@
     <!-- 載入 Babel (讓瀏覽器看得懂 JSX) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- 載入 Firebase (帳號登入 + 學習紀錄資料庫) -->
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+
     <style>
         /* 自定義動畫 */
         @keyframes shake {
@@ -49,6 +54,111 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
+
+        // =====================================================================
+        // Firebase 設定區
+        // 請到 https://console.firebase.google.com 建立一個新專案，
+        // 開啟 Authentication(電子郵件/密碼) 與 Firestore Database，
+        // 再到「專案設定 -> 一般 -> 您的應用程式」新增一個「網頁應用程式」，
+        // 把產生出來的設定值貼到下面取代佔位文字。
+        // 詳細步驟請參考隨附的 SETUP_GUIDE.md
+        // =====================================================================
+        const firebaseConfig = {
+          apiKey: "AIzaSyBZIPCZsFLR2ipwXdV_NKD8QISBMe19sMY",
+          authDomain: "nypspassport.firebaseapp.com",
+          projectId: "nypspassport",
+          storageBucket: "nypspassport.firebasestorage.app",
+          messagingSenderId: "962134991864",
+          appId: "1:962134991864:web:107576b36482fec9442c0d"
+        };
+
+        const FIREBASE_NOT_CONFIGURED = firebaseConfig.apiKey === "YOUR_API_KEY";
+
+        let auth, db, secondaryAuth;
+        if (!FIREBASE_NOT_CONFIGURED) {
+          firebase.initializeApp(firebaseConfig);
+          // 額外開一個「副本 App」，專門用來讓老師新增學生帳號時
+          // 暫時登入新學生、拿到帳號後立刻登出，這樣才不會把老師自己的登入狀態擠掉。
+          const secondaryApp = firebase.initializeApp(firebaseConfig, "secondary");
+          auth = firebase.auth();
+          secondaryAuth = secondaryApp.auth();
+          db = firebase.firestore();
+          // 登入狀態記住在這台裝置上，學生/老師不用每次都重新輸入密碼，
+          // 直到自己按登出為止 (Firebase 網頁版預設就是這個行為，這裡明講一次比較保險)。
+          auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+        }
+
+        // --- 通用小工具 ---
+
+        // 把「年級」+「主題」轉成可以放進 Firestore 文件裡的安全 key
+        const topicKey = (grade, topic) =>
+          `${grade}__${topic}`.replace(/[\/\.\#\$\[\]]/g, '_');
+
+        // 把「班級」+「座號」轉成 Firebase Auth 用的虛擬 email
+        // (學生不需要真的擁有 email，只是借用 Firebase Auth 的帳密機制。
+        //  班級名稱可能包含中文，所以先做 URL 編碼確保只剩英數字元，
+        //  這樣產生出來的 email 格式一定合法。)
+        // version 參數是給「老師重置密碼」用的：換一個新版本號就能產生一個
+        // 全新的信箱，等於幫學生「換一個新帳號」但資料都會被搬過去，
+        // 因為 Firebase 沒辦法直接修改別人的密碼，只能用這個方式做到「重置」。
+        const classSeatToEmail = (className, seat, version) => {
+          const raw = `${className}-${seat}${version ? '-v' + version : ''}`.trim().toLowerCase().replace(/\s+/g, '');
+          const safe = encodeURIComponent(raw).replace(/%/g, '_').replace(/[^a-z0-9_.\-]/gi, '_').toLowerCase();
+          return `${safe}@nypspassport.local`;
+        };
+
+        // 「班級+座號」目前對應到哪個帳號 (email) 的查詢 key，用來讓密碼
+        // 重置後，學生下次登入時系統知道要用新的帳號嘗試登入。
+        const classSeatKey = (className, seat) =>
+          `${className}__${seat}`.replace(/[\/\.\#\$\[\]]/g, '_').toLowerCase();
+
+        // 學校目前的班級 (以年級為單位)，登入畫面下拉選單的預設值。
+        // 如果之後 Firestore 的 /config/classes 有資料，會優先用那份；
+        // 這裡只是還沒設定時的備用預設值，所以不用特別再去 Firebase Console 建一次。
+        const DEFAULT_CLASSES = ['三年級', '四年級', '五年級', '六年級'];
+        // 每班大概人數，只是登入畫面座號欄位旁邊的小提示文字，不是強制限制。
+        const CLASS_SEAT_COUNTS = { '三年級': 5, '四年級': 2, '五年級': 5, '六年級': 6 };
+
+        // 老師只有固定三位、共用同一組密碼，不用個別註冊帳號。
+        // 第一次用某個名字登入時，系統會自動用這組密碼建立該老師的帳號；
+        // 之後同一個名字要用同一組密碼才能登入。
+        const TEACHER_NAMES = ['一蓁', '逸蓁', '士頡'];
+        const TEACHER_SHARED_PASSWORD = '1646276077';
+        const teacherNameToEmail = (name) => {
+          const raw = `teacher-${name}`.trim().toLowerCase();
+          const safe = encodeURIComponent(raw).replace(/%/g, '_').replace(/[^a-z0-9_.\-]/gi, '_').toLowerCase();
+          return `${safe}@nypspassport.local`;
+        };
+
+        const STAGE_ORDER = ['listen', 'look', 'arrange', 'spell'];
+        const STAGE_LABEL = { listen: '聽得懂', look: '看得懂', arrange: '排得出來', spell: '拼得出來' };
+        const STAGE_ICON = { listen: '🎧', look: '👀', arrange: '🧩', spell: '⌨️' };
+        // 點數只由老師「蓋章」核發，不再由系統自動給，避免被竄改，
+        // 也讓「蓋章」這個動作本身變成老師肯定學生的儀式感。
+        const TASK_STAMP_POINTS = 5;
+
+        const isStageUnlocked = (topicProgress, stage) => {
+          const idx = STAGE_ORDER.indexOf(stage);
+          if (idx === 0) return true;
+          const prevStage = STAGE_ORDER[idx - 1];
+          return !!(topicProgress && topicProgress[prevStage]);
+        };
+
+        // 一個任務(單元)的聽/看/排/拼四關是否都過了
+        const isTaskComplete = (topicProgress) =>
+          !!topicProgress && STAGE_ORDER.every(st => topicProgress[st]);
+
+        // 從同年級所有主題中，隨機抽出跟目標項目不同中文意思的干擾選項
+        const buildChoices = (grade, correctItem, count = 4) => {
+          const pool = [];
+          Object.values(curriculumData[grade] || {}).forEach(items => {
+            items.forEach(it => { if (it.zh !== correctItem.zh) pool.push(it.zh); });
+          });
+          const shuffledPool = [...new Set(pool)].sort(() => Math.random() - 0.5);
+          const distractors = shuffledPool.slice(0, count - 1);
+          const choices = [...distractors, correctItem.zh].sort(() => Math.random() - 0.5);
+          return choices;
+        };
 
         // --- 圖示組件 ---
         const Icons = {
@@ -682,6 +792,39 @@
           }
         };
 
+        // --- 字母練習資料 (主要給三年級熟悉字母大小寫、字母名稱與發音例字用) ---
+        // 說明：瀏覽器的語音功能沒辦法唸出單獨的「音標音」(例如 A 的 /æ/)，
+        // 所以這裡實際做的是「字母名稱」(唸 A 這個字母本身) + 「例字」(Apple)，
+        // 幫助學生建立字母跟例字發音之間的連結，這也是自然發音法最常見的教法。
+        const ALPHABET_DATA = [
+          { letter: 'A', word: 'Apple', zh: '蘋果', emoji: '🍎' },
+          { letter: 'B', word: 'Ball', zh: '球', emoji: '⚽' },
+          { letter: 'C', word: 'Cat', zh: '貓', emoji: '🐱' },
+          { letter: 'D', word: 'Dog', zh: '狗', emoji: '🐶' },
+          { letter: 'E', word: 'Elephant', zh: '大象', emoji: '🐘' },
+          { letter: 'F', word: 'Fish', zh: '魚', emoji: '🐟' },
+          { letter: 'G', word: 'Grape', zh: '葡萄', emoji: '🍇' },
+          { letter: 'H', word: 'Hat', zh: '帽子', emoji: '🎩' },
+          { letter: 'I', word: 'Ice Cream', zh: '冰淇淋', emoji: '🍦' },
+          { letter: 'J', word: 'Juice', zh: '果汁', emoji: '🧃' },
+          { letter: 'K', word: 'Kite', zh: '風箏', emoji: '🪁' },
+          { letter: 'L', word: 'Lion', zh: '獅子', emoji: '🦁' },
+          { letter: 'M', word: 'Monkey', zh: '猴子', emoji: '🐵' },
+          { letter: 'N', word: 'Nose', zh: '鼻子', emoji: '👃' },
+          { letter: 'O', word: 'Orange', zh: '橘子', emoji: '🍊' },
+          { letter: 'P', word: 'Pig', zh: '豬', emoji: '🐷' },
+          { letter: 'Q', word: 'Queen', zh: '皇后', emoji: '👸' },
+          { letter: 'R', word: 'Rabbit', zh: '兔子', emoji: '🐰' },
+          { letter: 'S', word: 'Sun', zh: '太陽', emoji: '☀️' },
+          { letter: 'T', word: 'Tiger', zh: '老虎', emoji: '🐯' },
+          { letter: 'U', word: 'Umbrella', zh: '雨傘', emoji: '☂️' },
+          { letter: 'V', word: 'Van', zh: '廂型車', emoji: '🚐' },
+          { letter: 'W', word: 'Watermelon', zh: '西瓜', emoji: '🍉' },
+          { letter: 'X', word: 'X-ray', zh: 'X光', emoji: '🩻' },
+          { letter: 'Y', word: 'Yo-yo', zh: '溜溜球', emoji: '🪀' },
+          { letter: 'Z', word: 'Zebra', zh: '斑馬', emoji: '🦓' },
+        ];
+
         // --- 輔助函數 ---
         const getIcon = (text) => {
           const lower = text.toLowerCase();
@@ -1006,19 +1149,20 @@
           return `${firstChar}${mask}${lastChar}`;
         };
 
-        const Header = ({ title, subtitle, onBack }) => (
+        const Header = ({ title, subtitle, onBack, right }) => (
           <div className="bg-sky-500 text-white p-4 shadow-md flex items-center sticky top-0 z-50">
             {onBack && (
               <button onClick={onBack} className="mr-4 p-2 hover:bg-sky-600 rounded-full transition-colors">
                 <Icons.ArrowLeft size={24} />
               </button>
             )}
-            <div>
+            <div className="flex-1">
               <h1 className="text-xl font-bold flex items-center gap-2">
                 <Icons.GraduationCap /> {title}
               </h1>
               {subtitle && <p className="text-sky-100 text-sm">{subtitle}</p>}
             </div>
+            {right}
           </div>
         );
 
@@ -1217,8 +1361,8 @@
           );
         };
 
-        const App = () => {
-          const [mode, setMode] = useState('menu'); 
+        const LearningApp = ({ studentId, studentName, className, seatNumber, progress, totalPoints, onStagePass, onExit }) => {
+          const [mode, setMode] = useState('menu');
           const [currentGrade, setCurrentGrade] = useState(null);
           const [currentTopic, setCurrentTopic] = useState(null);
           const [speakingItem, setSpeakingItem] = useState(null);
@@ -1228,12 +1372,24 @@
           const [matchedPairs, setMatchedPairs] = useState([]);
           const [isWrong, setIsWrong] = useState(false);
 
+          // stageMode: 'arrange' (排) 或 'spell' (拼) -- 共用底下的 spelling 系列 state
+          const [stageMode, setStageMode] = useState('spell');
           const [spellingQueue, setSpellingQueue] = useState([]);
           const [spellingIndex, setSpellingIndex] = useState(0);
           const [userSpelling, setUserSpelling] = useState('');
           const [spellingFeedback, setSpellingFeedback] = useState('idle');
           const [spellingStats, setSpellingStats] = useState({ correct: 0, total: 0 });
           const [scrambleParts, setScrambleParts] = useState({ available: [], placed: [] });
+          const [stageReported, setStageReported] = useState(false);
+
+          // 聽力 / 閱讀理解 選擇題 state
+          const [quizStageName, setQuizStageName] = useState('listen');
+          const [quizQueue, setQuizQueue] = useState([]);
+          const [quizIndex, setQuizIndex] = useState(0);
+          const [quizChoices, setQuizChoices] = useState([]);
+          const [quizSelected, setQuizSelected] = useState(null);
+          const [quizFeedback, setQuizFeedback] = useState('idle');
+          const [quizScore, setQuizScore] = useState(0);
 
           const [challengeGrade, setChallengeGrade] = useState('');
           const [challengeQuestions, setChallengeQuestions] = useState([]);
@@ -1301,15 +1457,92 @@
             setMode('game');
           };
 
-          const initSpelling = (grade, topic) => {
+          // 字母大小寫配對遊戲：重複使用配對遊戲的同一套邏輯 (gameCards/handleCardClick)，
+          // 只是把「英文/中文」換成「大寫字母/小寫字母」。
+          const initAlphabetGame = () => {
+            const picked = [...ALPHABET_DATA].sort(() => Math.random() - 0.5).slice(0, 8);
+            let cards = picked.flatMap((item, index) => [
+              { id: `up-${index}`, content: item.letter, type: 'en', pairId: index },
+              { id: `low-${index}`, content: item.letter.toLowerCase(), type: 'zh', pairId: index }
+            ]);
+            cards = cards.sort(() => Math.random() - 0.5);
+            setGameCards(cards);
+            setMatchedPairs([]);
+            setSelectedCards([]);
+            setIsWrong(false);
+            setMode('alphabet_game');
+          };
+
+          const initArrange = (grade, topic) => {
             const items = [...curriculumData[grade][topic]];
             const shuffled = items.sort(() => Math.random() - 0.5);
+            setStageMode('arrange');
             setSpellingQueue(shuffled);
             setSpellingIndex(0);
             setUserSpelling('');
             setSpellingFeedback('idle');
             setSpellingStats({ correct: 0, total: 0 });
-            setMode('spelling');
+            setStageReported(false);
+            setMode('arrange');
+          };
+
+          const initSpell = (grade, topic) => {
+            // 「拼得出來」只考單字，不考句子——句子只要看得懂、排得出順序、
+            // 知道怎麼用就好，不需要整句一字不漏打出來 (含標點符號)。
+            const allItems = curriculumData[grade][topic];
+            const wordsOnly = allItems.filter(item => !item.en.includes(' '));
+            const items = [...(wordsOnly.length > 0 ? wordsOnly : allItems)];
+            const shuffled = items.sort(() => Math.random() - 0.5);
+            setStageMode('spell');
+            setSpellingQueue(shuffled);
+            setSpellingIndex(0);
+            setUserSpelling('');
+            setSpellingFeedback('idle');
+            setSpellingStats({ correct: 0, total: 0 });
+            setStageReported(false);
+            setMode('spell');
+          };
+
+          // 聽力測驗 (只播放發音，隱藏英文，用選擇題考中文意思)
+          // 閱讀理解測驗 (只顯示英文，用選擇題考中文意思)
+          const initQuiz = (stageName, grade, topic) => {
+            const items = [...curriculumData[grade][topic]].sort(() => Math.random() - 0.5);
+            setQuizStageName(stageName);
+            setQuizQueue(items);
+            setQuizIndex(0);
+            setQuizChoices(buildChoices(grade, items[0]));
+            setQuizSelected(null);
+            setQuizFeedback('idle');
+            setQuizScore(0);
+            setStageReported(false);
+            setMode(stageName === 'listen' ? 'listen_quiz' : 'read_quiz');
+            if (stageName === 'listen') {
+              setTimeout(() => speak(items[0].en), 300);
+            }
+          };
+
+          const answerQuiz = (choice) => {
+            if (quizFeedback !== 'idle') return;
+            const currentItem = quizQueue[quizIndex];
+            const correct = choice === currentItem.zh;
+            setQuizSelected(choice);
+            setQuizFeedback(correct ? 'correct' : 'wrong');
+            if (correct) setQuizScore(prev => prev + 1);
+          };
+
+          const nextQuizQuestion = () => {
+            const nextIndex = quizIndex + 1;
+            if (nextIndex >= quizQueue.length) {
+              setQuizIndex(nextIndex); // 觸發顯示總結畫面
+              return;
+            }
+            setQuizIndex(nextIndex);
+            setQuizChoices(buildChoices(currentGrade, quizQueue[nextIndex]));
+            setQuizSelected(null);
+            setQuizFeedback('idle');
+            if (quizStageName === 'listen') {
+              setTimeout(() => speak(quizQueue[nextIndex].en), 300);
+            }
           };
 
           const initChallenge = (grade) => {
@@ -1358,16 +1591,38 @@
           };
 
           useEffect(() => {
-            if (mode === 'spelling' && spellingQueue.length > 0 && spellingIndex < spellingQueue.length) {
+            if ((mode === 'arrange' || mode === 'spell') && spellingQueue.length > 0 && spellingIndex < spellingQueue.length) {
                 const currentText = spellingQueue[spellingIndex].en;
-                if (currentText.includes(' ')) {
-                    const parts = currentText.split(' ');
+                if (mode === 'arrange') {
+                    // 片語/句子 -> 打散單字重組；單一單字 -> 打散字母重組
+                    const parts = currentText.includes(' ') ? currentText.split(' ') : currentText.split('');
                     setScrambleParts({ available: [...parts].sort(() => Math.random() - 0.5), placed: [] });
                 }
                 setUserSpelling('');
                 setSpellingFeedback('idle');
             }
           }, [spellingIndex, spellingQueue, mode]);
+
+          // 當「排」或「拼」關卡全部完成時，回報進度並給點數
+          useEffect(() => {
+            if ((mode === 'arrange' || mode === 'spell') && spellingQueue.length > 0 &&
+                spellingIndex >= spellingQueue.length && !stageReported) {
+              setStageReported(true);
+              onStagePass && onStagePass(currentGrade, currentTopic, mode, spellingQueue.length);
+            }
+          }, [mode, spellingIndex, spellingQueue, stageReported]);
+
+          // 當聽力/閱讀測驗答完全部題目、且答對率達 80% 以上時，回報進度並給點數
+          useEffect(() => {
+            if ((mode === 'listen_quiz' || mode === 'read_quiz') && quizQueue.length > 0 &&
+                quizIndex >= quizQueue.length && !stageReported) {
+              const passed = quizScore >= Math.ceil(quizQueue.length * 0.8);
+              if (passed) {
+                setStageReported(true);
+                onStagePass && onStagePass(currentGrade, currentTopic, quizStageName, quizQueue.length);
+              }
+            }
+          }, [mode, quizIndex, quizQueue, quizScore, stageReported]);
 
           useEffect(() => {
               if (mode === 'challenge_play' && challengeQuestions.length > 0 && challengeIndex < 10) {
@@ -1453,9 +1708,11 @@
             setScrambleParts({ available: newAvailable, placed: newPlaced });
 
             const currentTarget = spellingQueue[spellingIndex].en;
-            const targetParts = currentTarget.split(' ');
+            const isSentence = currentTarget.includes(' ');
+            const sep = isSentence ? ' ' : '';
+            const targetParts = isSentence ? currentTarget.split(' ') : currentTarget.split('');
             if (newPlaced.length === targetParts.length) {
-                if (newPlaced.join(' ') === currentTarget) {
+                if (newPlaced.join(sep) === currentTarget) {
                     setSpellingFeedback('correct');
                     speak("Correct! " + (currentTarget === 'I' ? 'Eye' : currentTarget));
                     setSpellingStats(prev => ({ ...prev, correct: prev.correct + 1 }));
@@ -1506,9 +1763,37 @@
           if (mode === 'menu') {
             return (
               <div className="min-h-screen bg-sky-50 font-sans pb-20">
-                <Header title="鳥嶼國小英語護照" subtitle="請選擇你的年級或挑戰" />
-                
+                <Header
+                  title="鳥嶼國小英語護照"
+                  subtitle={`${studentName || ''}　${className || ''}${seatNumber ? ' ' + seatNumber + '號' : ''}`}
+                  right={
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1 bg-white/20 px-3 py-1.5 rounded-full font-bold">
+                        <Icons.Star size={18} fill="currentColor" />
+                        <span>{totalPoints ?? 0} 點</span>
+                      </div>
+                      {onExit && (
+                        <button onClick={onExit} className="p-2 hover:bg-sky-600 rounded-full transition-colors" title="登出">
+                          <Icons.X size={20} />
+                        </button>
+                      )}
+                    </div>
+                  }
+                />
+
                 <div className="p-6 max-w-4xl mx-auto">
+                    <button
+                      onClick={() => setMode('my_passport')}
+                      className="w-full mb-8 bg-gradient-to-r from-sky-500 to-indigo-500 p-5 rounded-2xl shadow-lg border-b-4 border-indigo-700 hover:translate-y-[-2px] transition-all flex items-center gap-4 text-white"
+                    >
+                      <span className="text-4xl">🛂</span>
+                      <div className="text-left flex-1">
+                        <div className="font-bold text-xl">我的學習護照</div>
+                        <div className="text-sky-100 text-sm">查看我完成了哪些任務、蓋了幾個章、累積了多少點</div>
+                      </div>
+                      <Icons.ArrowLeft className="rotate-180" size={24} />
+                    </button>
+
                     <h2 className="text-xl font-bold text-sky-800 mb-4 flex items-center gap-2"><Icons.BookOpen /> 課程學習 (Learn & Play)</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
                     {Object.keys(curriculumData).map((grade) => (
@@ -1525,6 +1810,18 @@
                     ))}
                     </div>
 
+                    <h2 className="text-xl font-bold text-emerald-800 mb-4 flex items-center gap-2"><Icons.Keyboard /> 字母練習 ABC</h2>
+                    <button
+                        onClick={() => setMode('alphabet_menu')}
+                        className="w-full mb-10 bg-gradient-to-r from-emerald-400 to-teal-500 p-6 rounded-3xl shadow-xl border-b-8 border-emerald-700 hover:translate-y-[-2px] transition-all flex items-center gap-4 text-white"
+                    >
+                        <span className="text-5xl">🔤</span>
+                        <div className="text-left flex-1">
+                          <div className="text-2xl font-bold tracking-widest">Aa Bb Cc...</div>
+                          <div className="text-emerald-50 mt-1">認識26個字母的大小寫、名稱與發音例字 (推薦三年級)</div>
+                        </div>
+                    </button>
+
                     <h2 className="text-xl font-bold text-orange-800 mb-4 flex items-center gap-2"><Icons.Zap /> 綜合挑戰 (Challenge)</h2>
                     <button
                         onClick={() => setMode('challenge_select')}
@@ -1534,6 +1831,182 @@
                         <span className="text-3xl font-bold tracking-widest">進入挑戰模式</span>
                         <span className="text-orange-100 mt-2">隨機 10 題測驗，考驗你的實力！</span>
                     </button>
+                </div>
+              </div>
+            );
+          }
+
+          // 1b. 我的學習護照：完成了哪些任務、蓋了幾個章
+          if (mode === 'my_passport') {
+            const allTopicKeys = [];
+            Object.keys(curriculumData).forEach(grade => {
+              Object.keys(curriculumData[grade]).forEach(topic => allTopicKeys.push([grade, topic]));
+            });
+            const startedCount = allTopicKeys.filter(([g, t]) => progress[topicKey(g, t)]).length;
+            const stampedCount = allTopicKeys.filter(([g, t]) => (progress[topicKey(g, t)] || {}).stamped).length;
+
+            return (
+              <div className="min-h-screen bg-indigo-50 font-sans pb-20">
+                <Header title="我的學習護照" subtitle={`已蓋章 ${stampedCount} 個任務 · 已開始 ${startedCount} 個任務`} onBack={() => setMode('menu')} />
+
+                <div className="p-4 max-w-4xl mx-auto">
+                  <div className="bg-white rounded-2xl shadow p-5 mb-6 flex items-center justify-center gap-3">
+                    <Icons.Star size={28} className="text-yellow-400" fill="currentColor" />
+                    <span className="text-3xl font-bold text-gray-700">{totalPoints ?? 0}</span>
+                    <span className="text-gray-400">點</span>
+                  </div>
+
+                  {Object.keys(curriculumData).map(grade => (
+                    <div key={grade} className="mb-6">
+                      <h3 className="font-bold text-indigo-700 mb-2">{grade}</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {Object.keys(curriculumData[grade]).map(topic => {
+                          const tk = topicKey(grade, topic);
+                          const p = progress[tk];
+                          const started = !!p;
+                          const stamped = !!(p && p.stamped);
+                          return (
+                            <div
+                              key={topic}
+                              className={`relative rounded-2xl p-4 shadow-sm border-2 overflow-hidden ${started ? 'bg-white border-indigo-100' : 'bg-gray-50 border-gray-100 opacity-60'}`}
+                            >
+                              {stamped && (
+                                <div className="absolute -top-2 -right-3 rotate-12 text-red-500 border-2 border-red-400 rounded-lg px-2 py-0.5 text-[10px] font-black bg-red-50/90">
+                                  已認證
+                                </div>
+                              )}
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="text-2xl">{getIcon(topic)}</span>
+                                <span className="font-bold text-gray-700 text-sm">{topic.split('(')[0]}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {STAGE_ORDER.map(st => (
+                                  <span key={st} className={`text-sm ${p && p[st] ? 'opacity-100' : 'opacity-20 grayscale'}`}>{STAGE_ICON[st]}</span>
+                                ))}
+                              </div>
+                              {!started && <p className="text-[11px] text-gray-300 mt-1">尚未開始</p>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+
+          // 1c. 字母練習：選單 (字母卡 / 大小寫配對)
+          if (mode === 'alphabet_menu') {
+            return (
+              <div className="min-h-screen bg-emerald-50 font-sans">
+                <Header title="字母練習 ABC" subtitle="認識26個字母" onBack={() => setMode('menu')} />
+                <div className="p-6 max-w-2xl mx-auto space-y-4">
+                  <button
+                    onClick={() => setMode('alphabet_cards')}
+                    className="w-full bg-white p-6 rounded-2xl shadow-lg border-b-8 border-emerald-200 hover:border-emerald-300 hover:translate-y-[-2px] transition-all flex items-center gap-4"
+                  >
+                    <span className="text-5xl">🗂️</span>
+                    <div className="text-left flex-1">
+                      <div className="font-bold text-xl text-gray-700">字母卡</div>
+                      <div className="text-gray-400 text-sm">點一下聽字母名稱，點例字聽發音</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={initAlphabetGame}
+                    className="w-full bg-white p-6 rounded-2xl shadow-lg border-b-8 border-teal-200 hover:border-teal-300 hover:translate-y-[-2px] transition-all flex items-center gap-4"
+                  >
+                    <span className="text-5xl">🔠</span>
+                    <div className="text-left flex-1">
+                      <div className="font-bold text-xl text-gray-700">大小寫配對遊戲</div>
+                      <div className="text-gray-400 text-sm">練習大寫 A 配小寫 a</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          // 1d. 字母卡
+          if (mode === 'alphabet_cards') {
+            return (
+              <div className="min-h-screen bg-emerald-50 font-sans pb-10">
+                <Header title="字母卡" subtitle="點字母聽名稱，點例字聽發音" onBack={() => setMode('alphabet_menu')} />
+                <div className="p-4 max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {ALPHABET_DATA.map(item => (
+                    <div key={item.letter} className="bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-emerald-200 p-4 text-center transition-all">
+                      <button
+                        onClick={() => speak(item.letter)}
+                        className={`w-full mb-2 text-4xl font-black tracking-wide font-serif rounded-xl py-2 transition-all ${speakingItem === item.letter ? 'bg-emerald-100 text-emerald-600' : 'text-gray-700 hover:bg-emerald-50'}`}
+                      >
+                        {item.letter}{item.letter.toLowerCase()}
+                      </button>
+                      <button
+                        onClick={() => speak(item.word)}
+                        className={`w-full flex items-center justify-center gap-2 rounded-xl py-2 transition-all ${speakingItem === item.word ? 'bg-sky-100' : 'hover:bg-sky-50'}`}
+                      >
+                        <span className="text-2xl">{item.emoji}</span>
+                        <span className="text-sm font-bold text-gray-600">{item.word}</span>
+                        <Icons.Volume2 size={14} className="text-sky-400" />
+                      </button>
+                      <p className="text-xs text-gray-300 mt-1">{item.zh}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+
+          // 1e. 字母大小寫配對遊戲 (跟 mode 'game' 共用同一套 gameCards 邏輯)
+          if (mode === 'alphabet_game') {
+            const isWin = matchedPairs.length * 2 === gameCards.length && gameCards.length > 0;
+            return (
+              <div className="min-h-screen bg-teal-50 font-sans pb-20">
+                <Header title="大小寫配對" subtitle="配對練習 (Matching Game)" onBack={() => setMode('alphabet_menu')} />
+                <div className="p-4 max-w-4xl mx-auto">
+                  {isWin ? (
+                    <div className="text-center py-12 animate-bounce-in bg-white rounded-3xl shadow-xl p-8">
+                      <div className="text-8xl mb-4 text-yellow-400 mx-auto w-fit"><Icons.Trophy size={80} fill="currentColor"/></div>
+                      <h2 className="text-3xl font-bold text-teal-600 mb-4">恭喜完成!</h2>
+                      <div className="flex justify-center gap-4 flex-wrap">
+                        <button onClick={initAlphabetGame} className="px-6 py-3 bg-teal-500 text-white rounded-full font-bold shadow-lg hover:bg-teal-600 flex items-center gap-2">
+                          <Icons.RefreshCw size={20}/> 再玩一次
+                        </button>
+                        <button onClick={() => setMode('alphabet_menu')} className="px-6 py-3 bg-gray-200 text-gray-700 rounded-full font-bold shadow hover:bg-gray-300 flex items-center gap-2">
+                          <Icons.BookOpen size={20}/> 回到字母練習
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center mb-4 px-2">
+                        <span className="font-bold text-teal-600 bg-teal-100 px-3 py-1 rounded-full">Score: {matchedPairs.length} / {gameCards.length / 2}</span>
+                        <span className="text-sm text-gray-500">點擊大寫，再點擊小寫</span>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {gameCards.map((card, index) => {
+                          const isSelected = selectedCards.includes(index);
+                          const isMatched = matchedPairs.includes(card.pairId.toString());
+                          const isWrongCard = isWrong && isSelected;
+                          if (isMatched) return <div key={card.id} className="invisible h-24"></div>;
+                          return (
+                            <button
+                              key={card.id}
+                              onClick={() => handleCardClick(index)}
+                              className={`
+                                h-24 md:h-32 rounded-xl p-2 flex flex-col items-center justify-center text-center shadow-sm transition-all text-3xl font-black border-b-4 active:border-b-0 active:translate-y-1 relative overflow-hidden
+                                ${isSelected ? 'bg-teal-100 border-teal-500' : 'bg-white border-gray-200 hover:border-teal-300'}
+                                ${isWrongCard ? 'animate-shake bg-red-100 border-red-400' : ''}
+                                ${card.type === 'en' ? 'text-teal-900' : 'text-gray-500'}
+                              `}
+                            >
+                              <span className="z-10 relative">{card.content}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -1567,14 +2040,35 @@
 
           // 3. 學習單字與句型清單
           if (mode === 'learn_items') {
+            const topicProgress = (progress && progress[topicKey(currentGrade, currentTopic)]) || {};
             return (
-              <div className="min-h-screen bg-green-50 font-sans pb-40">
-                <Header 
-                  title={`${currentTopic?.split('(')[0]}`} 
-                  subtitle="學習模式: 點擊聽發音 / 錄音 / 拼字" 
-                  onBack={() => { setCurrentTopic(null); setMode('learn_topics'); }} 
+              <div className="min-h-screen bg-green-50 font-sans pb-52">
+                <Header
+                  title={`${currentTopic?.split('(')[0]}`}
+                  subtitle="學習模式: 點擊聽發音 / 錄音 / 拼字"
+                  onBack={() => { setCurrentTopic(null); setMode('learn_topics'); }}
                 />
-  
+
+                <div className="max-w-3xl mx-auto px-4 pt-4">
+                  <div className="bg-white rounded-2xl shadow-sm border border-green-100 p-3 flex items-center justify-around">
+                    {STAGE_ORDER.map((stage, i) => {
+                      const passed = !!topicProgress[stage];
+                      const unlocked = isStageUnlocked(topicProgress, stage);
+                      return (
+                        <div key={stage} className="flex items-center">
+                          <div className={`flex flex-col items-center gap-1 ${passed ? 'text-green-600' : unlocked ? 'text-gray-600' : 'text-gray-300'}`}>
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg border-2 ${passed ? 'bg-green-100 border-green-400' : unlocked ? 'bg-gray-50 border-gray-300' : 'bg-gray-50 border-gray-200'}`}>
+                              {passed ? <Icons.Check size={20} /> : STAGE_ICON[stage]}
+                            </div>
+                            <span className="text-xs font-bold">{STAGE_LABEL[stage]}</span>
+                          </div>
+                          {i < STAGE_ORDER.length - 1 && <div className={`w-6 md:w-10 h-0.5 mx-1 ${topicProgress[stage] ? 'bg-green-300' : 'bg-gray-200'}`}></div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="p-4 max-w-3xl mx-auto space-y-4">
                   {curriculumData[currentGrade][currentTopic].map((item, idx) => (
                     <div 
@@ -1606,22 +2100,44 @@
                   ))}
                 </div>
   
-                <div className="fixed bottom-6 left-0 right-0 flex justify-center px-4 z-20 gap-3">
-                  <button
-                    onClick={() => initGame(currentGrade, currentTopic)}
-                    className="flex-1 max-w-[200px] bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 px-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105 active:scale-95 border-b-4 border-orange-700 active:border-b-0 active:translate-y-1"
-                  >
-                    <Icons.Gamepad2 size={24} />
-                    <span>配對遊戲</span>
-                  </button>
-                  
-                  <button
-                    onClick={() => initSpelling(currentGrade, currentTopic)}
-                    className="flex-1 max-w-[200px] bg-violet-500 hover:bg-violet-600 text-white font-bold py-4 px-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105 active:scale-95 border-b-4 border-violet-700 active:border-b-0 active:translate-y-1"
-                  >
-                    <Icons.Keyboard size={24} />
-                    <span>拼字/重組</span>
-                  </button>
+                <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-green-100 pt-3 pb-3 px-3 z-20">
+                  <div className="max-w-3xl mx-auto grid grid-cols-4 gap-2 mb-2">
+                    {[
+                      { stage: 'listen', label: '聽力測驗', color: 'sky', run: () => initQuiz('listen', currentGrade, currentTopic) },
+                      { stage: 'look', label: '閱讀理解', color: 'emerald', run: () => initQuiz('look', currentGrade, currentTopic) },
+                      { stage: 'arrange', label: '排字挑戰', color: 'amber', run: () => initArrange(currentGrade, currentTopic) },
+                      { stage: 'spell', label: '拼字挑戰', color: 'violet', run: () => initSpell(currentGrade, currentTopic) },
+                    ].map(({ stage, label, color, run }) => {
+                      const unlocked = isStageUnlocked(topicProgress, stage);
+                      const passed = !!topicProgress[stage];
+                      return (
+                        <button
+                          key={stage}
+                          disabled={!unlocked}
+                          onClick={run}
+                          className={`
+                            relative flex flex-col items-center justify-center gap-1 py-3 rounded-xl font-bold text-xs shadow border-b-4 transition-all
+                            ${!unlocked ? 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed' :
+                              passed ? `bg-${color}-100 text-${color}-700 border-${color}-300` :
+                              `bg-${color}-500 text-white border-${color}-700 hover:brightness-105 active:border-b-0 active:translate-y-1`}
+                          `}
+                        >
+                          {!unlocked && <Icons.Info size={14} className="absolute top-1 right-1 opacity-60" />}
+                          <span className="text-xl leading-none">{unlocked ? STAGE_ICON[stage] : '🔒'}</span>
+                          <span>{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="max-w-3xl mx-auto">
+                    <button
+                      onClick={() => initGame(currentGrade, currentTopic)}
+                      className="w-full bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all"
+                    >
+                      <Icons.Gamepad2 size={18} />
+                      <span>自由練習：配對遊戲（隨時可玩，不影響關卡進度）</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -1695,26 +2211,33 @@
             );
           }
 
-          // 5. 單元拼字/重組練習
-          if (mode === 'spelling') {
+          // 5a. 排字挑戰 (排得出來) / 5b. 拼字挑戰 (拼得出來)
+          if (mode === 'arrange' || mode === 'spell') {
+            const isArrange = mode === 'arrange';
+            const stageColor = isArrange ? 'amber' : 'violet';
             const showSummary = spellingIndex >= spellingQueue.length;
+            const reInit = () => (isArrange ? initArrange(currentGrade, currentTopic) : initSpell(currentGrade, currentTopic));
+
             if (showSummary) {
                 return (
-                    <div className="min-h-screen bg-violet-50 font-sans pb-20">
+                    <div className={`min-h-screen bg-${stageColor}-50 font-sans pb-20`}>
                         <Header title="練習結果" onBack={() => setMode('learn_items')} />
                         <div className="p-8 max-w-md mx-auto text-center mt-10 bg-white rounded-3xl shadow-xl">
-                            <div className="text-6xl mb-4">📝</div>
-                            <h2 className="text-2xl font-bold text-gray-800 mb-2">挑戰結束!</h2>
+                            <div className="text-6xl mb-4">{isArrange ? '🧩' : '📝'}</div>
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">
+                                {isArrange ? '排字關卡完成！' : '拼字關卡完成！'}
+                            </h2>
                             <p className="text-xl text-gray-600 mb-6">
                                 答對題數: <span className="text-green-600 font-bold text-3xl">{spellingStats.correct}</span> / {spellingQueue.length}
                             </p>
-                            <button 
-                                onClick={() => initSpelling(currentGrade, currentTopic)}
-                                className="w-full py-3 bg-violet-500 text-white rounded-xl font-bold shadow mb-3 hover:bg-violet-600"
+                            <p className="text-sm text-gray-400 mb-6">已記錄到你的學習護照，老師可以看到囉！</p>
+                            <button
+                                onClick={reInit}
+                                className={`w-full py-3 bg-${stageColor}-500 text-white rounded-xl font-bold shadow mb-3 hover:bg-${stageColor}-600`}
                             >
-                                再試一次
+                                再玩一次
                             </button>
-                            <button 
+                            <button
                                 onClick={() => setMode('learn_items')}
                                 className="w-full py-3 bg-gray-200 text-gray-700 rounded-xl font-bold shadow hover:bg-gray-300"
                             >
@@ -1729,22 +2252,22 @@
             const isSentenceMode = currentItem.en.includes(' ');
 
             return (
-              <div className="min-h-screen bg-violet-50 font-sans pb-20">
-                <Header 
-                  title={isSentenceMode ? "句子重組 (Unscramble)" : "拼字挑戰 (Spelling)"} 
+              <div className={`min-h-screen bg-${stageColor}-50 font-sans pb-20`}>
+                <Header
+                  title={isArrange ? (isSentenceMode ? '句子重組 (排得出來)' : '字母重組 (排得出來)') : '拼字挑戰 (拼得出來)'}
                   subtitle={`Question ${spellingIndex + 1} / ${spellingQueue.length}`}
-                  onBack={() => setMode('learn_items')} 
+                  onBack={() => setMode('learn_items')}
                 />
-                
+
                 <div className="p-6 max-w-lg mx-auto flex flex-col items-center gap-6 mt-4">
                     <div className="bg-white p-8 rounded-3xl shadow-lg w-full flex flex-col items-center relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-2 bg-violet-200">
-                            <div className="h-full bg-violet-500 transition-all duration-500" style={{ width: `${((spellingIndex)/spellingQueue.length)*100}%`}}></div>
+                        <div className={`absolute top-0 left-0 w-full h-2 bg-${stageColor}-200`}>
+                            <div className={`h-full bg-${stageColor}-500 transition-all duration-500`} style={{ width: `${((spellingIndex)/spellingQueue.length)*100}%`}}></div>
                         </div>
 
                         <div className="text-6xl mb-4 animate-bounce-slow">{getIcon(currentItem.en)}</div>
                         <h3 className="text-2xl font-bold text-gray-800 mb-6">{currentItem.zh}</h3>
-                        
+
                         <button
                             onClick={() => speak(currentItem.en)}
                             className="mb-6 flex items-center justify-center gap-2 w-full max-w-xs px-4 py-2 bg-sky-100 text-sky-600 rounded-full hover:bg-sky-200 transition-all mx-auto"
@@ -1753,19 +2276,19 @@
                             <span className="font-bold">聽發音 (Listen)</span>
                         </button>
 
-                        {isSentenceMode ? (
+                        {isArrange ? (
                             <div className="w-full">
                                 <div className={`
-                                    min-h-[80px] w-full bg-violet-50 rounded-xl border-2 border-dashed flex flex-wrap gap-2 p-3 items-center justify-center mb-6 transition-all
-                                    ${spellingFeedback === 'correct' ? 'border-green-400 bg-green-50' : 'border-violet-300'}
+                                    min-h-[80px] w-full bg-${stageColor}-50 rounded-xl border-2 border-dashed flex flex-wrap gap-2 p-3 items-center justify-center mb-6 transition-all
+                                    ${spellingFeedback === 'correct' ? 'border-green-400 bg-green-50' : `border-${stageColor}-300`}
                                     ${spellingFeedback === 'wrong' ? 'border-red-400 bg-red-50 animate-shake' : ''}
                                 `}>
-                                    {scrambleParts.placed.length === 0 && <span className="text-gray-400 text-sm">請依序點擊下方的單字...</span>}
+                                    {scrambleParts.placed.length === 0 && <span className="text-gray-400 text-sm">{isSentenceMode ? '請依序點擊下方的單字...' : '請依序點擊下方的字母...'}</span>}
                                     {scrambleParts.placed.map((word, idx) => (
                                         <button
                                             key={idx}
                                             onClick={() => handleScrambleDeselect(word, idx)}
-                                            className="bg-white px-3 py-1 rounded-lg shadow border border-violet-100 text-violet-700 font-bold hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-all"
+                                            className={`bg-white ${isSentenceMode ? 'px-3 py-1' : 'w-10 h-10'} rounded-lg shadow border border-${stageColor}-100 text-${stageColor}-700 font-bold hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-all`}
                                         >
                                             {word}
                                         </button>
@@ -1776,7 +2299,7 @@
                                         <button
                                             key={idx}
                                             onClick={() => handleScrambleSelect(word, idx)}
-                                            className="bg-violet-100 px-4 py-2 rounded-lg text-violet-800 font-bold shadow-sm hover:bg-violet-200 hover:scale-105 active:scale-95 transition-all"
+                                            className={`bg-${stageColor}-100 ${isSentenceMode ? 'px-4 py-2' : 'w-10 h-10'} rounded-lg text-${stageColor}-800 font-bold shadow-sm hover:bg-${stageColor}-200 hover:scale-105 active:scale-95 transition-all`}
                                         >
                                             {word}
                                         </button>
@@ -1792,8 +2315,8 @@
                                     </p>
                                 </div>
                                 <div className="w-full relative">
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
                                         value={userSpelling}
                                         onChange={(e) => {
                                             if (spellingFeedback !== 'correct') {
@@ -1823,15 +2346,15 @@
 
                         <div className="mt-8 w-full">
                             {spellingFeedback === 'correct' ? (
-                                 <button 
+                                 <button
                                     onClick={nextQuestion}
                                     className="w-full py-4 bg-green-500 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-green-600 active:scale-95 transition-all flex items-center justify-center gap-2"
                                 >
                                     下一題 (Next)
                                 </button>
                             ) : (
-                                !isSentenceMode ? (
-                                     <button 
+                                !isArrange ? (
+                                     <button
                                         onClick={checkWordSpelling}
                                         className="w-full py-4 bg-violet-600 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-violet-700 active:scale-95 transition-all"
                                     >
@@ -1839,9 +2362,9 @@
                                     </button>
                                 ) : (
                                     spellingFeedback === 'wrong' && (
-                                        <button 
+                                        <button
                                             onClick={() => {
-                                                const parts = currentItem.en.split(' ');
+                                                const parts = isSentenceMode ? currentItem.en.split(' ') : currentItem.en.split('');
                                                 setScrambleParts({ available: parts.sort(() => Math.random() - 0.5), placed: [] });
                                                 setSpellingFeedback('idle');
                                             }}
@@ -1854,6 +2377,108 @@
                             )}
                         </div>
                     </div>
+                </div>
+              </div>
+            );
+          }
+
+          // 5c. 聽力測驗 (聽得懂) / 5d. 閱讀理解測驗 (看得懂)
+          if (mode === 'listen_quiz' || mode === 'read_quiz') {
+            const isListen = mode === 'listen_quiz';
+            const stageColor = isListen ? 'sky' : 'emerald';
+            const showSummary = quizIndex >= quizQueue.length;
+
+            if (showSummary) {
+              const passThreshold = Math.ceil(quizQueue.length * 0.8);
+              const passed = quizScore >= passThreshold;
+              return (
+                <div className={`min-h-screen bg-${stageColor}-50 font-sans pb-20`}>
+                  <Header title="測驗結果" onBack={() => setMode('learn_items')} />
+                  <div className="p-8 max-w-md mx-auto text-center mt-10 bg-white rounded-3xl shadow-xl">
+                    <div className="text-6xl mb-4">{passed ? '🎉' : '💪'}</div>
+                    <h2 className="text-2xl font-bold text-gray-800 mb-2">{passed ? '過關了！' : '再加油一下！'}</h2>
+                    <p className="text-xl text-gray-600 mb-2">
+                      答對題數: <span className={`font-bold text-3xl ${passed ? 'text-green-600' : 'text-orange-500'}`}>{quizScore}</span> / {quizQueue.length}
+                    </p>
+                    <p className="text-sm text-gray-400 mb-6">
+                      {passed ? '已記錄到你的學習護照，下一關解鎖囉！' : `答對 ${passThreshold} 題以上才能過關解鎖下一關`}
+                    </p>
+                    <button
+                      onClick={() => initQuiz(quizStageName, currentGrade, currentTopic)}
+                      className={`w-full py-3 bg-${stageColor}-500 text-white rounded-xl font-bold shadow mb-3 hover:bg-${stageColor}-600`}
+                    >
+                      再試一次
+                    </button>
+                    <button
+                      onClick={() => setMode('learn_items')}
+                      className="w-full py-3 bg-gray-200 text-gray-700 rounded-xl font-bold shadow hover:bg-gray-300"
+                    >
+                      回到學習
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            const currentItem = quizQueue[quizIndex];
+            return (
+              <div className={`min-h-screen bg-${stageColor}-50 font-sans pb-20`}>
+                <Header
+                  title={isListen ? '聽力測驗 (聽得懂)' : '閱讀理解 (看得懂)'}
+                  subtitle={`Question ${quizIndex + 1} / ${quizQueue.length}　答對 ${quizScore} 題`}
+                  onBack={() => setMode('learn_items')}
+                />
+                <div className="p-6 max-w-lg mx-auto flex flex-col items-center gap-6 mt-4">
+                  <div className="bg-white p-8 rounded-3xl shadow-lg w-full flex flex-col items-center relative overflow-hidden">
+                    <div className={`absolute top-0 left-0 w-full h-2 bg-${stageColor}-200`}>
+                      <div className={`h-full bg-${stageColor}-500 transition-all duration-500`} style={{ width: `${(quizIndex/quizQueue.length)*100}%`}}></div>
+                    </div>
+
+                    {isListen ? (
+                      <button
+                        onClick={() => speak(currentItem.en)}
+                        className="mb-6 mt-2 flex flex-col items-center justify-center gap-2 w-32 h-32 rounded-full bg-sky-100 hover:bg-sky-200 transition-all animate-pulse-fast"
+                      >
+                        <Icons.Volume2 size={48} className="text-sky-600" />
+                        <span className="text-xs font-bold text-sky-500">點擊再聽一次</span>
+                      </button>
+                    ) : (
+                      <h3 className="text-4xl font-bold text-gray-800 mb-8 mt-4 font-serif text-center">{currentItem.en}</h3>
+                    )}
+
+                    <p className="text-sm text-gray-400 mb-4">請選出正確的中文意思</p>
+                    <div className="w-full grid grid-cols-1 gap-3">
+                      {quizChoices.map((choice, idx) => {
+                        const isCorrectChoice = choice === currentItem.zh;
+                        const isSelected = choice === quizSelected;
+                        let style = 'bg-gray-50 border-gray-200 hover:border-' + stageColor + '-300';
+                        if (quizFeedback !== 'idle') {
+                          if (isCorrectChoice) style = 'bg-green-50 border-green-400 text-green-700';
+                          else if (isSelected) style = 'bg-red-50 border-red-400 text-red-600';
+                          else style = 'bg-gray-50 border-gray-100 text-gray-300';
+                        }
+                        return (
+                          <button
+                            key={idx}
+                            disabled={quizFeedback !== 'idle'}
+                            onClick={() => answerQuiz(choice)}
+                            className={`w-full p-4 rounded-xl border-2 font-bold text-lg transition-all ${style}`}
+                          >
+                            {choice}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {quizFeedback !== 'idle' && (
+                      <button
+                        onClick={nextQuizQuestion}
+                        className="mt-6 w-full py-4 bg-green-500 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-green-600 active:scale-95 transition-all"
+                      >
+                        下一題 (Next)
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -2062,8 +2687,745 @@
           return null;
         };
 
+        // =====================================================================
+        // 以下為帳號登入 / 老師後台相關元件
+        // =====================================================================
+
+        const FirebaseNotConfiguredScreen = () => (
+          <div className="min-h-screen bg-red-50 flex items-center justify-center p-6 font-sans">
+            <div className="max-w-lg bg-white rounded-3xl shadow-xl p-8 text-center">
+              <div className="text-6xl mb-4">⚙️</div>
+              <h1 className="text-2xl font-bold text-red-600 mb-3">尚未設定 Firebase</h1>
+              <p className="text-gray-600 leading-relaxed">
+                這個系統需要連接 Firebase 才能記錄學生的學習紀錄與點數。
+                請依照隨附的 <code className="bg-gray-100 px-1 rounded">SETUP_GUIDE.md</code> 建立 Firebase 專案，
+                並把設定值貼到 <code className="bg-gray-100 px-1 rounded">index.html</code> 開頭的 <code className="bg-gray-100 px-1 rounded">firebaseConfig</code> 裡。
+              </p>
+            </div>
+          </div>
+        );
+
+        const RoleSelectScreen = ({ onPick }) => (
+          <div className="min-h-screen bg-sky-50 flex items-center justify-center p-6 font-sans">
+            <div className="max-w-md w-full text-center">
+              <div className="text-6xl mb-3">🛂</div>
+              <h1 className="text-2xl font-bold text-gray-800 mb-1">鳥嶼國小英語學習護照</h1>
+              <p className="text-gray-500 mb-8">請選擇你的身分登入</p>
+              <div className="grid grid-cols-1 gap-4">
+                <button onClick={() => onPick('student')} className="bg-white p-6 rounded-2xl shadow-lg border-b-8 border-sky-300 hover:translate-y-[-2px] transition-all flex items-center gap-4">
+                  <span className="text-4xl">🧒</span>
+                  <div className="text-left">
+                    <div className="font-bold text-xl text-gray-800">我是學生</div>
+                    <div className="text-sm text-gray-400">班級 + 座號 + 密碼登入</div>
+                  </div>
+                </button>
+                <button onClick={() => onPick('teacher')} className="bg-white p-6 rounded-2xl shadow-lg border-b-8 border-orange-300 hover:translate-y-[-2px] transition-all flex items-center gap-4">
+                  <span className="text-4xl">🧑‍🏫</span>
+                  <div className="text-left">
+                    <div className="font-bold text-xl text-gray-800">我是老師</div>
+                    <div className="text-sm text-gray-400">查看學生進度 / 加點</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+
+        const StudentLoginScreen = ({ classesList, onLogin, onBack, error, busy }) => {
+          const effectiveClasses = classesList.length > 0 ? classesList : DEFAULT_CLASSES;
+          const [className, setClassName] = useState(effectiveClasses[0] || '');
+          const [seat, setSeat] = useState('');
+          const [password, setPassword] = useState('');
+          const [name, setName] = useState('');
+
+          useEffect(() => {
+            if (!className && effectiveClasses.length > 0) setClassName(effectiveClasses[0]);
+          }, [classesList]);
+
+          const seatCount = CLASS_SEAT_COUNTS[className] || 40;
+          const seatOptions = Array.from({ length: seatCount }, (_, i) => String(i + 1));
+
+          // 班級一改變，座號要重設成新班級的第一號，不然會殘留舊班級選到的號碼
+          // （例如選了六年級6號，切到只有2個人的四年級，殘留的「6」會是不存在的座號）。
+          useEffect(() => {
+            setSeat(prev => (seatOptions.includes(prev) ? prev : (seatOptions[0] || '')));
+          }, [className]);
+
+          return (
+            <div className="min-h-screen bg-sky-50 flex items-center justify-center p-6 font-sans">
+              <div className="max-w-sm w-full bg-white rounded-3xl shadow-xl p-8">
+                <button onClick={onBack} className="text-gray-400 hover:text-gray-600 mb-4 flex items-center gap-1 text-sm">
+                  <Icons.ArrowLeft size={16} /> 返回
+                </button>
+                <h2 className="text-xl font-bold text-gray-800 mb-1 text-center">學生登入</h2>
+                <p className="text-xs text-gray-400 mb-6 text-center">第一次使用會自動幫你建立帳號</p>
+
+                <label className="block text-sm font-bold text-gray-500 mb-1">班級</label>
+                <select value={className} onChange={e => setClassName(e.target.value)} className="w-full p-3 mb-4 border-2 border-gray-200 rounded-xl outline-none focus:border-sky-400">
+                  {effectiveClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+
+                <label className="block text-sm font-bold text-gray-500 mb-1">座號</label>
+                <select value={seat} onChange={e => setSeat(e.target.value)} className="w-full p-3 mb-4 border-2 border-gray-200 rounded-xl outline-none focus:border-sky-400">
+                  {seatOptions.map(s => <option key={s} value={s}>{s} 號</option>)}
+                </select>
+
+                <label className="block text-sm font-bold text-gray-500 mb-1">密碼</label>
+                <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="第一次使用請自己設一組 (至少6碼)" className="w-full p-3 mb-4 border-2 border-gray-200 rounded-xl outline-none focus:border-sky-400" />
+
+                <label className="block text-sm font-bold text-gray-500 mb-1">姓名 <span className="font-normal text-gray-300">(只有第一次登入需要填)</span></label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="你的名字" className="w-full p-3 mb-6 border-2 border-gray-200 rounded-xl outline-none focus:border-sky-400" />
+
+                {error && <p className="text-red-500 text-sm mb-4 text-center">{error}</p>}
+
+                <button
+                  disabled={busy || !className || !seat || password.length < 6}
+                  onClick={() => onLogin(className, seat, password, name)}
+                  className="w-full py-3 bg-sky-500 hover:bg-sky-600 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg"
+                >
+                  {busy ? '登入中...' : '登入 / 開始使用'}
+                </button>
+                {password.length > 0 && password.length < 6 && (
+                  <p className="text-xs text-gray-400 mt-2 text-center">密碼至少要 6 個字元喔</p>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        const TeacherLoginScreen = ({ onLogin, onBack, error, busy }) => {
+          const [name, setName] = useState('');
+          const [password, setPassword] = useState('');
+          return (
+            <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6 font-sans">
+              <div className="max-w-sm w-full bg-white rounded-3xl shadow-xl p-8">
+                <button onClick={onBack} className="text-gray-400 hover:text-gray-600 mb-4 flex items-center gap-1 text-sm">
+                  <Icons.ArrowLeft size={16} /> 返回
+                </button>
+                <h2 className="text-xl font-bold text-gray-800 mb-6 text-center">老師登入</h2>
+
+                <label className="block text-sm font-bold text-gray-500 mb-2">請選擇你是哪一位老師</label>
+                <div className="grid grid-cols-3 gap-2 mb-6">
+                  {TEACHER_NAMES.map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setName(n)}
+                      className={`py-3 rounded-xl font-bold border-2 transition-all ${name === n ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200 hover:border-orange-300'}`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+
+                <label className="block text-sm font-bold text-gray-500 mb-1">密碼</label>
+                <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="共用密碼" className="w-full p-3 mb-6 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-400" />
+
+                {error && <p className="text-red-500 text-sm mb-4 text-center">{error}</p>}
+
+                <button
+                  disabled={busy || !name || !password}
+                  onClick={() => onLogin(name, password)}
+                  className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg"
+                >
+                  {busy ? '登入中...' : '登入'}
+                </button>
+              </div>
+            </div>
+          );
+        };
+
+        // --- 老師後台：班級管理 + 學生名冊 + 進度儀表板 + 加點 ---
+        const TeacherDashboard = ({ teacherName, classesList, onAddClass, onAddStudent, onStampTask, onAwardPoints, onResetPassword, onExit }) => {
+          const [selectedClass, setSelectedClass] = useState(classesList[0] || '');
+          const [students, setStudents] = useState([]);
+          const [pointsMap, setPointsMap] = useState({});
+          const [loading, setLoading] = useState(false);
+          const [newClassName, setNewClassName] = useState('');
+          const [showAddStudent, setShowAddStudent] = useState(false);
+          const [newStudent, setNewStudent] = useState({ seat: '', name: '', pin: '' });
+          const [addStudentError, setAddStudentError] = useState('');
+          const [addStudentBusy, setAddStudentBusy] = useState(false);
+          const [awardTarget, setAwardTarget] = useState(null);
+          const [awardAmount, setAwardAmount] = useState(1);
+          const [awardReason, setAwardReason] = useState('');
+          const [stampingKey, setStampingKey] = useState(null); // `${studentId}__${topicKey}` 防止重複點擊
+          const [resetTarget, setResetTarget] = useState(null);
+          const [resetPassword, setResetPassword] = useState('');
+          const [resetBusy, setResetBusy] = useState(false);
+          const [resetError, setResetError] = useState('');
+          const [resetDoneMsg, setResetDoneMsg] = useState('');
+
+          useEffect(() => {
+            if (!selectedClass) { setStudents([]); return; }
+            setLoading(true);
+            const unsub = db.collection('students').where('className', '==', selectedClass)
+              .onSnapshot(async (snap) => {
+                const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                list.sort((a, b) => (Number(a.seatNumber) || 0) - (Number(b.seatNumber) || 0));
+                setStudents(list);
+                setLoading(false);
+                // 逐一算出每位學生的總點數 (加總 pointLogs)
+                const entries = await Promise.all(list.map(async (s) => {
+                  const logsSnap = await db.collection('students').doc(s.id).collection('pointLogs').get();
+                  let sum = 0;
+                  logsSnap.forEach(d => { sum += (d.data().delta || 0); });
+                  return [s.id, sum];
+                }));
+                setPointsMap(Object.fromEntries(entries));
+              }, (err) => { console.error(err); setLoading(false); });
+            return () => unsub();
+          }, [selectedClass]);
+
+          const handleAddClass = () => {
+            if (!newClassName.trim()) return;
+            onAddClass(newClassName.trim());
+            setSelectedClass(newClassName.trim());
+            setNewClassName('');
+          };
+
+          const handleAddStudent = async () => {
+            setAddStudentError('');
+            if (!newStudent.seat || !newStudent.name || newStudent.pin.length < 6) {
+              setAddStudentError('請完整填寫座號、姓名，密碼至少 6 碼');
+              return;
+            }
+            setAddStudentBusy(true);
+            try {
+              await onAddStudent(selectedClass, newStudent.seat, newStudent.name, newStudent.pin);
+              setNewStudent({ seat: '', name: '', pin: '' });
+              setShowAddStudent(false);
+            } catch (e) {
+              setAddStudentError(e.message || '新增失敗，請確認座號是否重複');
+            }
+            setAddStudentBusy(false);
+          };
+
+          const submitAward = async () => {
+            if (!awardTarget || !awardAmount) return;
+            await onAwardPoints(awardTarget.id, awardAmount, awardReason, teacherName);
+            setPointsMap(prev => ({ ...prev, [awardTarget.id]: (prev[awardTarget.id] || 0) + Number(awardAmount) }));
+            setAwardTarget(null);
+            setAwardAmount(1);
+            setAwardReason('');
+          };
+
+          const handleStamp = async (student, tKey, grade, topic) => {
+            const key = `${student.id}__${tKey}`;
+            setStampingKey(key);
+            try {
+              await onStampTask(student.id, tKey, grade, topic, teacherName);
+              setPointsMap(prev => ({ ...prev, [student.id]: (prev[student.id] || 0) + TASK_STAMP_POINTS }));
+            } finally {
+              setStampingKey(null);
+            }
+          };
+
+          const submitResetPassword = async () => {
+            if (!resetTarget || resetPassword.length < 6) return;
+            setResetBusy(true); setResetError('');
+            try {
+              await onResetPassword(resetTarget, resetPassword);
+              setResetDoneMsg(`已重置！請告訴 ${resetTarget.name} 新密碼：${resetPassword}`);
+              setResetPassword('');
+            } catch (e) {
+              setResetError('重置失敗，請再試一次');
+            }
+            setResetBusy(false);
+          };
+
+          return (
+            <div className="min-h-screen bg-orange-50 font-sans pb-20">
+              <Header
+                title="老師後台"
+                subtitle={teacherName}
+                right={
+                  <button onClick={onExit} className="p-2 hover:bg-sky-600 rounded-full transition-colors" title="登出">
+                    <Icons.X size={20} />
+                  </button>
+                }
+              />
+
+              <div className="p-4 max-w-4xl mx-auto">
+                <div className="bg-white rounded-2xl shadow p-4 mb-6 flex flex-wrap items-center gap-3">
+                  <span className="font-bold text-gray-600">班級：</span>
+                  {classesList.map(c => (
+                    <button key={c} onClick={() => setSelectedClass(c)}
+                      className={`px-4 py-2 rounded-full font-bold text-sm ${selectedClass === c ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-orange-100'}`}>
+                      {c}
+                    </button>
+                  ))}
+                  <div className="flex items-center gap-2 ml-auto">
+                    <input value={newClassName} onChange={e => setNewClassName(e.target.value)} placeholder="新增班級名稱"
+                      className="px-3 py-2 border-2 border-gray-200 rounded-full text-sm outline-none focus:border-orange-400" />
+                    <button onClick={handleAddClass} className="px-3 py-2 bg-orange-100 text-orange-600 rounded-full font-bold text-sm hover:bg-orange-200">
+                      + 新增班級
+                    </button>
+                  </div>
+                </div>
+
+                {selectedClass && (
+                  <div className="bg-white rounded-2xl shadow p-4 mb-6">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-bold text-gray-700">{selectedClass} 學生名冊</h3>
+                      <button onClick={() => setShowAddStudent(v => !v)} className="text-sm font-bold text-orange-500 hover:underline">
+                        {showAddStudent ? '取消' : '+ 新增學生'}
+                      </button>
+                    </div>
+                    {showAddStudent && (
+                      <div className="bg-orange-50 rounded-xl p-4 mb-4 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                        <div>
+                          <label className="text-xs font-bold text-gray-400">座號</label>
+                          <select value={newStudent.seat} onChange={e => setNewStudent(s => ({ ...s, seat: e.target.value }))} className="w-full p-2 border-2 border-gray-200 rounded-lg outline-none">
+                            <option value="">請選擇</option>
+                            {Array.from({ length: CLASS_SEAT_COUNTS[selectedClass] || 40 }, (_, i) => String(i + 1)).map(s => (
+                              <option key={s} value={s}>{s} 號</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-400">姓名</label>
+                          <input value={newStudent.name} onChange={e => setNewStudent(s => ({ ...s, name: e.target.value }))} className="w-full p-2 border-2 border-gray-200 rounded-lg outline-none" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-400">密碼 (6碼以上)</label>
+                          <input value={newStudent.pin} onChange={e => setNewStudent(s => ({ ...s, pin: e.target.value }))} className="w-full p-2 border-2 border-gray-200 rounded-lg outline-none" />
+                        </div>
+                        <button disabled={addStudentBusy} onClick={handleAddStudent} className="py-2 bg-orange-500 text-white rounded-lg font-bold hover:bg-orange-600 disabled:opacity-50">
+                          {addStudentBusy ? '新增中...' : '確認新增'}
+                        </button>
+                        {addStudentError && <p className="text-red-500 text-xs md:col-span-4">{addStudentError}</p>}
+                      </div>
+                    )}
+
+                    {loading ? (
+                      <p className="text-gray-400 text-sm py-6 text-center">載入中...</p>
+                    ) : students.length === 0 ? (
+                      <p className="text-gray-400 text-sm py-6 text-center">這個班級還沒有學生，點上面「+ 新增學生」開始建立名冊吧！</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {students.map(s => {
+                          const progress = s.progress || {};
+                          const topicKeys = Object.keys(progress);
+                          const pendingStamp = topicKeys.filter(tk => isTaskComplete(progress[tk]) && !progress[tk].stamped);
+                          const stampedTasks = topicKeys.filter(tk => progress[tk].stamped);
+                          const inProgressTasks = topicKeys.filter(tk => !isTaskComplete(progress[tk]));
+
+                          return (
+                            <div key={s.id} className="border border-gray-100 rounded-xl p-3">
+                              <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                                <div className="flex items-center gap-3">
+                                  <span className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 font-bold flex items-center justify-center text-sm">{s.seatNumber}</span>
+                                  <span className="font-bold text-gray-700">{s.name}</span>
+                                  <span className="text-xs text-gray-400">已蓋章 {stampedTasks.length} 個任務</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="flex items-center gap-1 text-yellow-600 font-bold text-sm">
+                                    <Icons.Star size={16} fill="currentColor" /> {pointsMap[s.id] ?? '...'} 點
+                                  </span>
+                                  <button onClick={() => setAwardTarget(s)} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full text-xs font-bold hover:bg-gray-200">
+                                    其他加點
+                                  </button>
+                                  <button
+                                    onClick={() => { setResetTarget(s); setResetError(''); setResetDoneMsg(''); setResetPassword(''); }}
+                                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full text-xs font-bold hover:bg-gray-200"
+                                  >
+                                    🔑 重置密碼
+                                  </button>
+                                </div>
+                              </div>
+
+                              {pendingStamp.length > 0 && (
+                                <div className="mb-2 space-y-1.5">
+                                  {pendingStamp.map(tk => {
+                                    const [grade, topic] = tk.split('__');
+                                    const key = `${s.id}__${tk}`;
+                                    return (
+                                      <div key={tk} className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                        <div className="flex items-center gap-2 text-sm">
+                                          <span className="text-lg">🎯</span>
+                                          <span className="font-bold text-amber-800">{topic?.split('(')[0]}</span>
+                                          <span className="text-amber-500 text-xs">四關全過，可以蓋章囉！</span>
+                                        </div>
+                                        <button
+                                          disabled={stampingKey === key}
+                                          onClick={() => handleStamp(s, tk, grade, topic)}
+                                          className="px-3 py-1.5 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-full text-xs font-bold flex items-center gap-1 shadow"
+                                        >
+                                          🖋️ 蓋章 +{TASK_STAMP_POINTS}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {(stampedTasks.length > 0 || inProgressTasks.length > 0) && (
+                                <div className="flex flex-wrap gap-2">
+                                  {stampedTasks.map(tk => {
+                                    const label = tk.split('__')[1] || tk;
+                                    return (
+                                      <div key={tk} className="text-[11px] bg-red-50 text-red-600 rounded-lg px-2 py-1 flex items-center gap-1 font-bold">
+                                        <span>🏅</span><span>{label.split('(')[0]}</span>
+                                      </div>
+                                    );
+                                  })}
+                                  {inProgressTasks.map(tk => {
+                                    const p = progress[tk];
+                                    const label = tk.split('__')[1] || tk;
+                                    return (
+                                      <div key={tk} className="text-[11px] bg-gray-50 rounded-lg px-2 py-1 flex items-center gap-1">
+                                        <span className="text-gray-400">{label.split('(')[0]}</span>
+                                        {STAGE_ORDER.map(st => (
+                                          <span key={st} className={p[st] ? 'text-green-500' : 'text-gray-300'}>{STAGE_ICON[st]}</span>
+                                        ))}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {topicKeys.length === 0 && (
+                                <p className="text-xs text-gray-300">還沒有開始任何任務</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {awardTarget && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50">
+                  <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+                    <h3 className="font-bold text-lg text-gray-800 mb-4">給 {awardTarget.name} 加點</h3>
+                    <label className="text-xs font-bold text-gray-400">點數 (可為負數以扣點)</label>
+                    <input type="number" value={awardAmount} onChange={e => setAwardAmount(e.target.value)} className="w-full p-3 mb-3 border-2 border-gray-200 rounded-xl outline-none" />
+                    <label className="text-xs font-bold text-gray-400">原因</label>
+                    <input value={awardReason} onChange={e => setAwardReason(e.target.value)} placeholder="例如：課堂表現優異" className="w-full p-3 mb-4 border-2 border-gray-200 rounded-xl outline-none" />
+                    <div className="flex gap-2">
+                      <button onClick={() => setAwardTarget(null)} className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold">取消</button>
+                      <button onClick={submitAward} className="flex-1 py-2 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600">確認</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {resetTarget && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50">
+                  <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+                    <h3 className="font-bold text-lg text-gray-800 mb-2">重置 {resetTarget.name} 的密碼</h3>
+                    <p className="text-xs text-gray-400 mb-4">重置後學生要用新密碼才能登入，原本的進度和點數都會保留。</p>
+
+                    {resetDoneMsg ? (
+                      <>
+                        <div className="bg-green-50 text-green-700 text-sm font-bold rounded-xl p-3 mb-4">{resetDoneMsg}</div>
+                        <button onClick={() => setResetTarget(null)} className="w-full py-2 bg-gray-100 text-gray-600 rounded-xl font-bold">關閉</button>
+                      </>
+                    ) : (
+                      <>
+                        <label className="text-xs font-bold text-gray-400">新密碼 (至少6碼)</label>
+                        <input value={resetPassword} onChange={e => setResetPassword(e.target.value)} placeholder="幫學生設一組新密碼" className="w-full p-3 mb-3 border-2 border-gray-200 rounded-xl outline-none" />
+                        {resetError && <p className="text-red-500 text-xs mb-3">{resetError}</p>}
+                        <div className="flex gap-2">
+                          <button onClick={() => setResetTarget(null)} className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold">取消</button>
+                          <button
+                            disabled={resetBusy || resetPassword.length < 6}
+                            onClick={submitResetPassword}
+                            className="flex-1 py-2 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 disabled:opacity-50"
+                          >
+                            {resetBusy ? '處理中...' : '確認重置'}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        // --- 根元件：處理登入狀態、Firestore 訂閱，並切換到對應畫面 ---
+        const Root = () => {
+          if (FIREBASE_NOT_CONFIGURED) return <FirebaseNotConfiguredScreen />;
+
+          const [screen, setScreen] = useState('roleSelect'); // roleSelect | studentLogin | teacherLogin
+          const [authChecked, setAuthChecked] = useState(false);
+          const [role, setRole] = useState(null); // 'student' | 'teacher'
+          const [studentProfile, setStudentProfile] = useState(null);
+          const [teacherProfile, setTeacherProfile] = useState(null);
+          const [totalPoints, setTotalPoints] = useState(0);
+          const [classesList, setClassesList] = useState([]);
+          const [loginError, setLoginError] = useState('');
+          const [busy, setBusy] = useState(false);
+
+          useEffect(() => {
+            db.collection('config').doc('classes').onSnapshot(doc => {
+              setClassesList((doc.exists && doc.data().names) || []);
+            });
+          }, []);
+
+          useEffect(() => {
+            const unsub = auth.onAuthStateChanged(async (user) => {
+              setLoginError('');
+              if (!user) {
+                setRole(null);
+                setStudentProfile(null);
+                setTeacherProfile(null);
+                setAuthChecked(true);
+                return;
+              }
+              const teacherDoc = await db.collection('teachers').doc(user.uid).get();
+              if (teacherDoc.exists) {
+                setRole('teacher');
+                setTeacherProfile({ id: user.uid, ...teacherDoc.data() });
+                setAuthChecked(true);
+                return;
+              }
+              // 訂閱學生資料 (即時更新進度)
+              setRole('student');
+              db.collection('students').doc(user.uid).onSnapshot(snap => {
+                if (snap.exists) {
+                  setStudentProfile({ id: user.uid, ...snap.data() });
+                } else {
+                  // 這個帳號的資料被清掉了 (通常是老師重置過密碼)，強制登出
+                  // 讓學生用新密碼重新登入。
+                  setStudentProfile(null);
+                  auth.signOut();
+                }
+              });
+              db.collection('students').doc(user.uid).collection('pointLogs').onSnapshot(snap => {
+                let sum = 0;
+                snap.forEach(d => { sum += (d.data().delta || 0); });
+                setTotalPoints(sum);
+              });
+              setAuthChecked(true);
+            });
+            return () => unsub();
+          }, []);
+
+          // 學生登入：先查一下這個「班級+座號」目前對應到哪個帳號
+          // (老師如果幫他重置過密碼，會指到一個新帳號)，找不到就用預設的第一組帳號。
+          // 接著先試著用輸入的密碼登入；如果失敗，就當作是第一次使用，用同一組
+          // 密碼 (加上姓名) 自動建立帳號。如果其實帳號早就存在、只是密碼打錯了，
+          // 第二次的建立帳號也會失敗 (email-already-in-use)，這時候才真正顯示「密碼不正確」。
+          const studentLogin = async (className, seat, password, name) => {
+            setBusy(true); setLoginError('');
+            const seatId = classSeatKey(className, seat);
+            let email = classSeatToEmail(className, seat);
+            try {
+              const pointerDoc = await db.collection('classSeat').doc(seatId).get();
+              if (pointerDoc.exists && pointerDoc.data().email) {
+                email = pointerDoc.data().email;
+              }
+            } catch (lookupErr) {
+              // 查不到指向資料就用預設帳號繼續嘗試，不擋住登入流程
+            }
+            try {
+              await auth.signInWithEmailAndPassword(email, password);
+            } catch (signInErr) {
+              try {
+                const cred = await auth.createUserWithEmailAndPassword(email, password);
+                await db.collection('students').doc(cred.user.uid).set({
+                  name: (name && name.trim()) || `${className} ${seat}號`,
+                  className, seatNumber: seat, progress: {},
+                  createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                });
+              } catch (createErr) {
+                if (createErr.code === 'auth/email-already-in-use') {
+                  setLoginError('密碼不正確，請再確認一次 (如果忘記密碼，請找老師幫忙重置)');
+                } else if (createErr.code === 'auth/weak-password') {
+                  setLoginError('密碼至少要 6 個字元');
+                } else {
+                  setLoginError('登入失敗：請確認班級、座號、密碼是否正確');
+                }
+              }
+            }
+            setBusy(false);
+          };
+
+          // 老師登入：只有 TEACHER_NAMES 這三個名字可以選，密碼固定同一組。
+          // 第一次用某個名字登入時 (該帳號還不存在)，就用這組密碼自動建立帳號。
+          const teacherLogin = async (name, password) => {
+            setBusy(true); setLoginError('');
+            const email = teacherNameToEmail(name);
+            try {
+              await auth.signInWithEmailAndPassword(email, password);
+            } catch (signInErr) {
+              if (password !== TEACHER_SHARED_PASSWORD) {
+                setLoginError('密碼不正確');
+                setBusy(false);
+                return;
+              }
+              try {
+                const cred = await auth.createUserWithEmailAndPassword(email, password);
+                await db.collection('teachers').doc(cred.user.uid).set({
+                  name, email, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                });
+              } catch (createErr) {
+                setLoginError('登入失敗，請確認密碼是否正確');
+              }
+            }
+            setBusy(false);
+          };
+
+          const logout = () => auth.signOut().then(() => setScreen('roleSelect'));
+
+          // 學生完成一個關卡時呼叫：只記錄進度，不自動給點數
+          // (點數改由老師「蓋章」核發，見 teacherStampTask)
+          const onStagePass = async (grade, topic, stage) => {
+            if (!studentProfile) return;
+            const tKey = topicKey(grade, topic);
+            const studentRef = db.collection('students').doc(studentProfile.id);
+            await studentRef.set({
+              progress: { [tKey]: { [stage]: true, updatedAt: firebase.firestore.FieldValue.serverTimestamp() } }
+            }, { merge: true });
+          };
+
+          const teacherAddClass = (name) => {
+            db.collection('config').doc('classes').set({
+              names: firebase.firestore.FieldValue.arrayUnion(name)
+            }, { merge: true });
+          };
+
+          const teacherAddStudent = async (className, seat, name, pin) => {
+            const email = classSeatToEmail(className, seat);
+            const cred = await secondaryAuth.createUserWithEmailAndPassword(email, pin);
+            const uid = cred.user.uid;
+            await secondaryAuth.signOut();
+            await db.collection('students').doc(uid).set({
+              name, className, seatNumber: seat, progress: {},
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+          };
+
+          // 老師蓋章：一個任務(單元)四關全過後，老師點擊蓋章給 5 點，
+          // 每個任務只能蓋一次章。
+          const teacherStampTask = async (studentId, tKey, grade, topic, teacherName) => {
+            const studentRef = db.collection('students').doc(studentId);
+            await studentRef.set({
+              progress: {
+                [tKey]: {
+                  stamped: true,
+                  stampedBy: teacherName,
+                  stampedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                }
+              }
+            }, { merge: true });
+            await studentRef.collection('pointLogs').add({
+              delta: TASK_STAMP_POINTS,
+              reason: `🎉 蓋章任務：${grade} - ${topic}`,
+              source: 'teacher', by: teacherName, topicKey: tKey,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+          };
+
+          // 老師額外加點/扣點 (蓋章以外的彈性加點，例如課堂表現)
+          const teacherAwardPoints = async (studentId, delta, reason, teacherName) => {
+            await db.collection('students').doc(studentId).collection('pointLogs').add({
+              delta: Number(delta),
+              reason: reason || '老師加點',
+              source: 'teacher', by: teacherName,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+          };
+
+          // 老師幫學生重置密碼。
+          // Firebase 沒有辦法讓老師直接「修改」另一個人的密碼，所以實際做法是：
+          // 幫學生用「新版本的帳號」建立一組新密碼，把原本的姓名/進度/點數紀錄
+          // 都搬過去，並更新 classSeat 指向資料，這樣學生下次用同一個班級+座號
+          // 登入時，系統會自動改用這個新帳號比對密碼。原本的舊帳號資料會被清掉。
+          const teacherResetPassword = async (student, newPassword) => {
+            const seatId = classSeatKey(student.className, student.seatNumber);
+            const newEmail = classSeatToEmail(student.className, student.seatNumber, Date.now());
+
+            const cred = await secondaryAuth.createUserWithEmailAndPassword(newEmail, newPassword);
+            const newUid = cred.user.uid;
+            await secondaryAuth.signOut();
+
+            const oldRef = db.collection('students').doc(student.id);
+            const newRef = db.collection('students').doc(newUid);
+
+            await newRef.set({
+              name: student.name,
+              className: student.className,
+              seatNumber: student.seatNumber,
+              progress: student.progress || {},
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+
+            // 把舊帳號的點數紀錄搬到新帳號，保留原本的加點/蓋章歷史
+            const oldLogsSnap = await oldRef.collection('pointLogs').get();
+            const copyBatch = db.batch();
+            oldLogsSnap.forEach(doc => {
+              copyBatch.set(newRef.collection('pointLogs').doc(doc.id), doc.data());
+            });
+            await copyBatch.commit();
+
+            // 更新指向資料，之後這個班級+座號登入都會改用新帳號
+            await db.collection('classSeat').doc(seatId).set({
+              email: newEmail, name: student.name,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+
+            // 刪掉舊帳號的學生資料 (progress/名字等)，避免後台看到重複的人。
+            // 舊的點數紀錄 (pointLogs) 依規則是「只能新增、不能刪除」的流水帳，
+            // 所以會留在舊帳號底下，但因為舊帳號沒有 Firestore 學生資料、也沒有
+            // 人知道密碼了，這些留下來的舊紀錄不會再被任何人讀到或用到。
+            await oldRef.delete();
+          };
+
+          if (!authChecked) {
+            return (
+              <div className="min-h-screen bg-sky-50 flex items-center justify-center">
+                <p className="text-sky-400 font-bold animate-pulse">載入中...</p>
+              </div>
+            );
+          }
+
+          if (role === 'teacher' && teacherProfile) {
+            return (
+              <TeacherDashboard
+                teacherName={teacherProfile.name}
+                classesList={classesList.length > 0 ? classesList : DEFAULT_CLASSES}
+                onAddClass={teacherAddClass}
+                onAddStudent={teacherAddStudent}
+                onStampTask={teacherStampTask}
+                onAwardPoints={teacherAwardPoints}
+                onResetPassword={teacherResetPassword}
+                onExit={logout}
+              />
+            );
+          }
+
+          if (role === 'student' && studentProfile) {
+            return (
+              <LearningApp
+                studentId={studentProfile.id}
+                studentName={studentProfile.name}
+                className={studentProfile.className}
+                seatNumber={studentProfile.seatNumber}
+                progress={studentProfile.progress || {}}
+                totalPoints={totalPoints}
+                onStagePass={onStagePass}
+                onExit={logout}
+              />
+            );
+          }
+
+          if (screen === 'studentLogin') {
+            return <StudentLoginScreen classesList={classesList} onLogin={studentLogin} onBack={() => setScreen('roleSelect')} error={loginError} busy={busy} />;
+          }
+          if (screen === 'teacherLogin') {
+            return <TeacherLoginScreen onLogin={teacherLogin} onBack={() => setScreen('roleSelect')} error={loginError} busy={busy} />;
+          }
+          return <RoleSelectScreen onPick={(r) => setScreen(r === 'student' ? 'studentLogin' : 'teacherLogin')} />;
+        };
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(<Root />);
     </script>
 </body>
 </html>
