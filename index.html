@@ -3238,8 +3238,12 @@
                   setLoginError('密碼不正確，請再確認一次 (如果忘記密碼，請找老師幫忙重置)');
                 } else if (createErr.code === 'auth/weak-password') {
                   setLoginError('密碼至少要 6 個字元');
+                } else if (createErr.code === 'auth/operation-not-allowed') {
+                  setLoginError('系統尚未設定完成：Firebase 還沒啟用 Email/Password 登入方式，請聯絡管理者到 Authentication → Sign-in method 開啟');
+                } else if (createErr.code === 'permission-denied') {
+                  setLoginError('系統尚未設定完成：Firestore 安全規則還沒發布或不是最新版，請聯絡管理者到 Firestore Database → 規則 重新發布');
                 } else {
-                  setLoginError('登入失敗：請確認班級、座號、密碼是否正確');
+                  setLoginError(`登入失敗：請確認班級、座號、密碼是否正確 (錯誤代碼: ${createErr.code || createErr.message || '未知'})`);
                 }
               }
             }
@@ -3265,7 +3269,13 @@
                   name, email, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 });
               } catch (createErr) {
-                setLoginError('登入失敗，請確認密碼是否正確');
+                if (createErr.code === 'auth/operation-not-allowed') {
+                  setLoginError('系統尚未設定完成：Firebase 還沒啟用 Email/Password 登入方式，請到 Authentication → Sign-in method 開啟');
+                } else if (createErr.code === 'permission-denied') {
+                  setLoginError('系統尚未設定完成：Firestore 安全規則還沒發布或不是最新版，請到 Firestore Database → 規則 重新發布 firestore.rules 的內容');
+                } else {
+                  setLoginError(`登入失敗，請確認密碼是否正確 (錯誤代碼: ${createErr.code || createErr.message || '未知'})`);
+                }
               }
             }
             setBusy(false);
