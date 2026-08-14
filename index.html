@@ -133,9 +133,10 @@
           return `${safe}@nypspassport.local`;
         };
 
-        const STAGE_ORDER = ['listen', 'look', 'arrange', 'spell'];
-        const STAGE_LABEL = { listen: '聽得懂', look: '看得懂', arrange: '排得出來', spell: '拼得出來' };
-        const STAGE_ICON = { listen: '🎧', look: '👀', arrange: '🧩', spell: '⌨️' };
+        // 口說 → 配對 → 聽得懂 → 看得懂 → 排得出來 → 拼得出來，一定要照順序解鎖。
+        const STAGE_ORDER = ['speak', 'match', 'listen', 'look', 'arrange', 'spell'];
+        const STAGE_LABEL = { speak: '口說練習', match: '配對遊戲', listen: '聽得懂', look: '看得懂', arrange: '排得出來', spell: '拼得出來' };
+        const STAGE_ICON = { speak: '🗣️', match: '🧠', listen: '🎧', look: '👀', arrange: '🧩', spell: '⌨️' };
         // 點數只由老師「蓋章」核發，不再由系統自動給，避免被竄改，
         // 也讓「蓋章」這個動作本身變成老師肯定學生的儀式感。
         const TASK_STAMP_POINTS = 5;
@@ -147,18 +148,26 @@
           return !!(topicProgress && topicProgress[prevStage]);
         };
 
-        // 一個任務(單元)的聽/看/排/拼四關是否都過了
+        // 一個任務(單元)的六關是否都過了
         const isTaskComplete = (topicProgress) =>
           !!topicProgress && STAGE_ORDER.every(st => topicProgress[st]);
 
-        // 從同年級所有主題中，隨機抽出跟目標項目不同中文意思的干擾選項
-        const buildChoices = (grade, correctItem, count = 4) => {
-          const pool = [];
-          Object.values(curriculumData[grade] || {}).forEach(items => {
-            items.forEach(it => { if (it.zh !== correctItem.zh) pool.push(it.zh); });
+        // 抽出跟目標項目不同中文意思的干擾選項。優先從「同一個單元」抽，
+        // 因為同單元的字比較容易混淆（例如都是動物、都是顏色），選起來才有鑑別度；
+        // 同單元字數不夠時，才從同年級其他單元補足。
+        const buildChoices = (grade, topic, correctItem, count = 4) => {
+          const sameTopicPool = [];
+          const otherTopicPool = [];
+          Object.entries(curriculumData[grade] || {}).forEach(([t, items]) => {
+            items.forEach(it => {
+              if (it.zh === correctItem.zh) return;
+              if (t === topic) sameTopicPool.push(it.zh);
+              else otherTopicPool.push(it.zh);
+            });
           });
-          const shuffledPool = [...new Set(pool)].sort(() => Math.random() - 0.5);
-          const distractors = shuffledPool.slice(0, count - 1);
+          const uniqueSame = [...new Set(sameTopicPool)].sort(() => Math.random() - 0.5);
+          const uniqueOther = [...new Set(otherTopicPool)].sort(() => Math.random() - 0.5);
+          const distractors = [...uniqueSame, ...uniqueOther].slice(0, count - 1);
           const choices = [...distractors, correctItem.zh].sort(() => Math.random() - 0.5);
           return choices;
         };
@@ -191,7 +200,6 @@
               { en: "you", zh: "你" },
               { en: "What's your name?", zh: "你叫什麼名字？" },
               { en: "My name is...", zh: "我的名字是..." },
-              { en: "Please spell your name.", zh: "請拼出你的名字。" },
               { en: "How are you?", zh: "你好嗎？" },
               { en: "I'm fine.", zh: "我很好。" }
             ],
@@ -1131,6 +1139,11 @@
           return '📝'; 
         };
 
+        // 「拼得出來」關卡不要求打出撇號(')、連字號(-)這類特殊符號，例如 o'clock
+        // 只要打得出 oclock 就算對，減少小朋友找不到符號鍵、或手機自動校正
+        // 把符號改掉導致明明拼對卻判錯的問題。這裡把符號整個拿掉再比對。
+        const spellableForm = (text) => (text || '').replace(/[^a-zA-Z0-9]/g, '');
+
         const getSpellingHint = (text) => {
           if (!text) return "";
           const trimmed = text.trim();
@@ -1364,7 +1377,7 @@
           );
         };
 
-        const LearningApp = ({ studentId, studentName, className, seatNumber, progress, totalPoints, onStagePass, onExit }) => {
+        const LearningApp = ({ studentId, studentName, englishName, className, seatNumber, progress, totalPoints, onStagePass, onExit }) => {
           const [mode, setMode] = useState('menu');
           const [currentGrade, setCurrentGrade] = useState(null);
           const [currentTopic, setCurrentTopic] = useState(null);
@@ -1384,6 +1397,12 @@
           const [spellingStats, setSpellingStats] = useState({ correct: 0, total: 0 });
           const [scrambleParts, setScrambleParts] = useState({ available: [], placed: [] });
           const [stageReported, setStageReported] = useState(false);
+
+          // 口說練習 state：一題一題輪流用麥克風唸，偵測不到的題目會被記下來，
+          // 最後如果沒有全部通過，會請學生去找老師手動過關 (麥克風常誤判)。
+          const [speakQueue, setSpeakQueue] = useState([]);
+          const [speakIndex, setSpeakIndex] = useState(0);
+          const [speakResults, setSpeakResults] = useState([]); // 'pass' | 'fail'，跟 speakQueue 同順序
 
           // 聽力 / 閱讀理解 選擇題 state
           const [quizStageName, setQuizStageName] = useState('listen');
@@ -1457,7 +1476,20 @@
             setMatchedPairs([]);
             setSelectedCards([]);
             setIsWrong(false);
+            setStageReported(false);
             setMode('game');
+          };
+
+          // 口說練習：一個單元的每個項目輪流用麥克風唸一次，麥克風常常誤判，
+          // 所以偵測不到也可以「跳過」，最後沒有全部通過的話，畫面會列出清單
+          // 請學生去找老師唸給老師聽，老師可以在後台手動幫他過這一關。
+          const initSpeak = (grade, topic) => {
+            const items = [...curriculumData[grade][topic]].sort(() => Math.random() - 0.5);
+            setSpeakQueue(items);
+            setSpeakIndex(0);
+            setSpeakResults([]);
+            setStageReported(false);
+            setMode('speak_quiz');
           };
 
           // 字母大小寫配對遊戲：重複使用配對遊戲的同一套邏輯 (gameCards/handleCardClick)，
@@ -1495,6 +1527,12 @@
             const allItems = curriculumData[grade][topic];
             const wordsOnly = allItems.filter(item => !item.en.includes(' '));
             const items = [...(wordsOnly.length > 0 ? wordsOnly : allItems)];
+            // Name 單元特別加一題：拼出自己的英文名字 (取代原本「Please spell
+            // your name.」這句固定句子——這件事本來就該是每個學生拼自己的名字，
+            // 不是全班背同一句話)。學生要有在登入時填過英文名字才會出現這一題。
+            if (grade === 'Grade 3' && topic === 'Name (名字)' && englishName && englishName.trim()) {
+              items.push({ en: englishName.trim(), zh: '拼出你自己的英文名字 🎉' });
+            }
             const shuffled = items.sort(() => Math.random() - 0.5);
             setStageMode('spell');
             setSpellingQueue(shuffled);
@@ -1513,7 +1551,7 @@
             setQuizStageName(stageName);
             setQuizQueue(items);
             setQuizIndex(0);
-            setQuizChoices(buildChoices(grade, items[0]));
+            setQuizChoices(buildChoices(grade, topic, items[0]));
             setQuizSelected(null);
             setQuizFeedback('idle');
             setQuizScore(0);
@@ -1540,7 +1578,7 @@
               return;
             }
             setQuizIndex(nextIndex);
-            setQuizChoices(buildChoices(currentGrade, quizQueue[nextIndex]));
+            setQuizChoices(buildChoices(currentGrade, currentTopic, quizQueue[nextIndex]));
             setQuizSelected(null);
             setQuizFeedback('idle');
             if (quizStageName === 'listen') {
@@ -1627,6 +1665,28 @@
             }
           }, [mode, quizIndex, quizQueue, quizScore, stageReported]);
 
+          // 配對遊戲全部配完時，回報進度 (配對現在也是主線關卡之一)
+          useEffect(() => {
+            if (mode === 'game' && gameCards.length > 0 &&
+                matchedPairs.length * 2 === gameCards.length && !stageReported) {
+              setStageReported(true);
+              onStagePass && onStagePass(currentGrade, currentTopic, 'match', gameCards.length / 2);
+            }
+          }, [mode, matchedPairs, gameCards, stageReported]);
+
+          // 口說練習全部題目都用麥克風唸對時，回報進度；只要有題目一直偵測不到、
+          // 學生按了「跳過」，這關就不會自動過，要等老師在後台聽學生唸過、手動過關。
+          useEffect(() => {
+            if (mode === 'speak_quiz' && speakQueue.length > 0 &&
+                speakIndex >= speakQueue.length && !stageReported) {
+              const passedCount = speakResults.filter(r => r === 'pass').length;
+              if (passedCount === speakQueue.length) {
+                setStageReported(true);
+                onStagePass && onStagePass(currentGrade, currentTopic, 'speak', speakQueue.length);
+              }
+            }
+          }, [mode, speakIndex, speakQueue, speakResults, stageReported]);
+
           useEffect(() => {
               if (mode === 'challenge_play' && challengeQuestions.length > 0 && challengeIndex < 10) {
                   const q = challengeQuestions[challengeIndex];
@@ -1648,9 +1708,9 @@
 
           const checkChallengeSpelling = () => {
               const currentItem = challengeQuestions[challengeIndex];
-              const cleanUser = chUserSpelling.trim().toLowerCase();
-              const cleanTarget = currentItem.en.trim().toLowerCase();
-              
+              const cleanUser = spellableForm(chUserSpelling).toLowerCase();
+              const cleanTarget = spellableForm(currentItem.en).toLowerCase();
+
               if (cleanUser === cleanTarget) {
                   setChFeedback('correct');
                   speak("Correct! " + (currentItem.en === 'I' ? 'Eye' : currentItem.en));
@@ -1691,9 +1751,9 @@
 
           const checkWordSpelling = () => {
             const currentItem = spellingQueue[spellingIndex];
-            const cleanUser = userSpelling.trim().toLowerCase();
-            const cleanTarget = currentItem.en.trim().toLowerCase();
-            
+            const cleanUser = spellableForm(userSpelling).toLowerCase();
+            const cleanTarget = spellableForm(currentItem.en).toLowerCase();
+
             if (cleanUser === cleanTarget) {
               setSpellingFeedback('correct');
               speak("Correct! " + (currentItem.en === 'I' ? 'Eye' : currentItem.en));
@@ -2104,8 +2164,10 @@
                 </div>
   
                 <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-green-100 pt-3 pb-3 px-3 z-20">
-                  <div className="max-w-3xl mx-auto grid grid-cols-4 gap-2 mb-2">
+                  <div className="max-w-3xl mx-auto grid grid-cols-3 gap-2">
                     {[
+                      { stage: 'speak', label: '口說練習', color: 'rose', run: () => initSpeak(currentGrade, currentTopic) },
+                      { stage: 'match', label: '配對遊戲', color: 'indigo', run: () => initGame(currentGrade, currentTopic) },
                       { stage: 'listen', label: '聽力測驗', color: 'sky', run: () => initQuiz('listen', currentGrade, currentTopic) },
                       { stage: 'look', label: '閱讀理解', color: 'emerald', run: () => initQuiz('look', currentGrade, currentTopic) },
                       { stage: 'arrange', label: '排字挑戰', color: 'amber', run: () => initArrange(currentGrade, currentTopic) },
@@ -2131,15 +2193,6 @@
                         </button>
                       );
                     })}
-                  </div>
-                  <div className="max-w-3xl mx-auto">
-                    <button
-                      onClick={() => initGame(currentGrade, currentTopic)}
-                      className="w-full bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all"
-                    >
-                      <Icons.Gamepad2 size={18} />
-                      <span>自由練習：配對遊戲（隨時可玩，不影響關卡進度）</span>
-                    </button>
                   </div>
                 </div>
               </div>
@@ -2209,6 +2262,99 @@
                       </div>
                     </>
                   )}
+                </div>
+              </div>
+            );
+          }
+
+          // 4b. 口說練習 (第一關)：麥克風常誤判，全部通過才自動過關，
+          // 沒通過的題目會列出來請學生去找老師唸給老師聽。
+          if (mode === 'speak_quiz') {
+            const showSummary = speakIndex >= speakQueue.length;
+
+            if (showSummary) {
+              const passedCount = speakResults.filter(r => r === 'pass').length;
+              const allPassed = speakQueue.length > 0 && passedCount === speakQueue.length;
+              const failedWords = speakQueue.filter((_, i) => speakResults[i] !== 'pass').map(it => it.en);
+              return (
+                <div className="min-h-screen bg-rose-50 font-sans pb-20">
+                  <Header title="口說練習結果" onBack={() => setMode('learn_items')} />
+                  <div className="p-8 max-w-md mx-auto text-center mt-10 bg-white rounded-3xl shadow-xl">
+                    <div className="text-6xl mb-4">{allPassed ? '🎉' : '🙋'}</div>
+                    <h2 className="text-2xl font-bold text-gray-800 mb-2">{allPassed ? '太棒了，全部通過！' : '還有幾個發音要練習'}</h2>
+                    <p className="text-xl text-gray-600 mb-2">
+                      通過：<span className="font-bold text-3xl text-green-600">{passedCount}</span> / {speakQueue.length}
+                    </p>
+                    {!allPassed && (
+                      <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 my-4 text-left">
+                        <p className="text-sm text-orange-700 font-bold mb-2">請把這幾個字帶去找老師，唸給老師聽，老師確認你唸對了就會幫你打勾過關：</p>
+                        <p className="text-lg font-bold text-orange-800">{failedWords.join('、')}</p>
+                      </div>
+                    )}
+                    <p className="text-sm text-gray-400 mb-6">
+                      {allPassed ? '已記錄到你的學習護照，下一關解鎖囉！' : '麥克風有時候聽不清楚很正常，可以多練習幾次，或是直接找老師唸給他聽'}
+                    </p>
+                    <button
+                      onClick={() => initSpeak(currentGrade, currentTopic)}
+                      className="w-full py-3 bg-rose-500 text-white rounded-xl font-bold shadow mb-3 hover:bg-rose-600"
+                    >
+                      再試一次
+                    </button>
+                    <button
+                      onClick={() => setMode('learn_items')}
+                      className="w-full py-3 bg-gray-200 text-gray-700 rounded-xl font-bold shadow hover:bg-gray-300"
+                    >
+                      回到學習
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            const currentItem = speakQueue[speakIndex];
+            const advance = (passed) => {
+              setSpeakResults(prev => {
+                const next = [...prev];
+                next[speakIndex] = passed ? 'pass' : 'fail';
+                return next;
+              });
+              setSpeakIndex(prev => prev + 1);
+            };
+
+            return (
+              <div className="min-h-screen bg-rose-50 font-sans pb-20">
+                <Header
+                  title="口說練習 (口說)"
+                  subtitle={`Question ${speakIndex + 1} / ${speakQueue.length}`}
+                  onBack={() => setMode('learn_items')}
+                />
+                <div className="p-6 max-w-lg mx-auto flex flex-col items-center gap-6 mt-4">
+                  <div className="bg-white p-8 rounded-3xl shadow-lg w-full flex flex-col items-center relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-2 bg-rose-200">
+                      <div className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${(speakIndex/speakQueue.length)*100}%`}}></div>
+                    </div>
+                    <div className="text-6xl mb-2 mt-2 animate-bounce-slow">{getIcon(currentItem.en)}</div>
+                    <h3 className="text-lg text-gray-500 mb-2">{currentItem.zh}</h3>
+                    <button
+                      onClick={() => speak(currentItem.en)}
+                      className="mb-4 flex items-center justify-center gap-2 px-4 py-2 bg-sky-100 text-sky-600 rounded-full hover:bg-sky-200 transition-all"
+                    >
+                      <Icons.Volume2 size={20} />
+                      <span className="font-bold text-sm">先聽發音</span>
+                    </button>
+                    <h2 className="text-3xl font-bold text-gray-800 mb-2 font-serif text-center">{currentItem.en}</h2>
+
+                    <div className="w-full">
+                      <SpeechEvaluator targetText={currentItem.en} onSuccess={() => advance(true)} />
+                    </div>
+
+                    <button
+                      onClick={() => advance(false)}
+                      className="mt-6 text-gray-400 text-sm hover:text-gray-600 underline"
+                    >
+                      麥克風偵測不到 / 跳過這題
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -2314,7 +2460,7 @@
                                 <div className="bg-violet-50 px-6 py-3 rounded-xl mb-6 border border-violet-100">
                                     <p className="text-sm text-violet-400 font-bold uppercase tracking-wider mb-1 text-center">HINT</p>
                                     <p className="text-3xl font-mono text-violet-600 font-bold tracking-widest text-center">
-                                        {getSpellingHint(currentItem.en)}
+                                        {getSpellingHint(spellableForm(currentItem.en))}
                                     </p>
                                 </div>
                                 <div className="w-full relative">
@@ -2630,7 +2776,7 @@
                                             <div className="bg-slate-900/50 px-6 py-3 rounded-xl mb-6 border border-slate-700">
                                                 <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1 text-center">HINT</p>
                                                 <p className="text-3xl font-mono text-violet-400 font-bold tracking-widest text-center">
-                                                    {getSpellingHint(q.en)}
+                                                    {getSpellingHint(spellableForm(q.en))}
                                                 </p>
                                             </div>
                                             <input 
@@ -2740,6 +2886,7 @@
           const [seat, setSeat] = useState('');
           const [password, setPassword] = useState('');
           const [name, setName] = useState('');
+          const [englishName, setEnglishName] = useState('');
 
           useEffect(() => {
             if (!className && effectiveClasses.length > 0) setClassName(effectiveClasses[0]);
@@ -2777,13 +2924,16 @@
                 <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="第一次使用請自己設一組 (至少6碼)" className="w-full p-3 mb-4 border-2 border-gray-200 rounded-xl outline-none focus:border-sky-400" />
 
                 <label className="block text-sm font-bold text-gray-500 mb-1">姓名 <span className="font-normal text-gray-300">(只有第一次登入需要填)</span></label>
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="你的名字" className="w-full p-3 mb-6 border-2 border-gray-200 rounded-xl outline-none focus:border-sky-400" />
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="你的名字" className="w-full p-3 mb-4 border-2 border-gray-200 rounded-xl outline-none focus:border-sky-400" />
+
+                <label className="block text-sm font-bold text-gray-500 mb-1">英文名字 <span className="font-normal text-gray-300">(選填，之後可以在「拼得出來」關卡練習拼出自己的名字)</span></label>
+                <input value={englishName} onChange={e => setEnglishName(e.target.value)} placeholder="例如：Amy" className="w-full p-3 mb-6 border-2 border-gray-200 rounded-xl outline-none focus:border-sky-400" />
 
                 {error && <p className="text-red-500 text-sm mb-4 text-center">{error}</p>}
 
                 <button
                   disabled={busy || !className || !seat || password.length < 6}
-                  onClick={() => onLogin(className, seat, password, name)}
+                  onClick={() => onLogin(className, seat, password, name, englishName)}
                   className="w-full py-3 bg-sky-500 hover:bg-sky-600 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg"
                 >
                   {busy ? '登入中...' : '登入 / 開始使用'}
@@ -2838,7 +2988,7 @@
         };
 
         // --- 老師後台：班級管理 + 學生名冊 + 進度儀表板 + 加點 ---
-        const TeacherDashboard = ({ teacherName, classesList, onAddClass, onAddStudent, onStampTask, onAwardPoints, onResetPassword, onExit }) => {
+        const TeacherDashboard = ({ teacherName, classesList, onAddClass, onAddStudent, onStampTask, onAwardPoints, onResetPassword, onOverrideSpeak, onExit }) => {
           const [selectedClass, setSelectedClass] = useState(classesList[0] || '');
           const [students, setStudents] = useState([]);
           const [pointsMap, setPointsMap] = useState({});
@@ -2918,6 +3068,18 @@
             try {
               await onStampTask(student.id, tKey, grade, topic, teacherName);
               setPointsMap(prev => ({ ...prev, [student.id]: (prev[student.id] || 0) + TASK_STAMP_POINTS }));
+            } finally {
+              setStampingKey(null);
+            }
+          };
+
+          // 口說關卡麥克風常常誤判，學生唸給老師聽、確認發音沒問題後，
+          // 老師直接按這顆按鈕手動過關，不用真的靠麥克風偵測成功。
+          const handleOverrideSpeak = async (student, tKey) => {
+            const key = `${student.id}__${tKey}__speak`;
+            setStampingKey(key);
+            try {
+              await onOverrideSpeak(student.id, tKey, teacherName);
             } finally {
               setStampingKey(null);
             }
@@ -3011,7 +3173,9 @@
                           const topicKeys = Object.keys(progress);
                           const pendingStamp = topicKeys.filter(tk => isTaskComplete(progress[tk]) && !progress[tk].stamped);
                           const stampedTasks = topicKeys.filter(tk => progress[tk].stamped);
-                          const inProgressTasks = topicKeys.filter(tk => !isTaskComplete(progress[tk]));
+                          // 已經蓋章的任務不會再算「進行中」，避免舊資料(六關上路前只有四關記錄)
+                          // 蓋過章之後同時出現在兩邊。
+                          const inProgressTasks = topicKeys.filter(tk => !isTaskComplete(progress[tk]) && !progress[tk].stamped);
 
                           return (
                             <div key={s.id} className="border border-gray-100 rounded-xl p-3">
@@ -3047,7 +3211,7 @@
                                         <div className="flex items-center gap-2 text-sm">
                                           <span className="text-lg">🎯</span>
                                           <span className="font-bold text-amber-800">{topic?.split('(')[0]}</span>
-                                          <span className="text-amber-500 text-xs">四關全過，可以蓋章囉！</span>
+                                          <span className="text-amber-500 text-xs">六關全過，可以蓋章囉！</span>
                                         </div>
                                         <button
                                           disabled={stampingKey === key}
@@ -3075,12 +3239,23 @@
                                   {inProgressTasks.map(tk => {
                                     const p = progress[tk];
                                     const label = tk.split('__')[1] || tk;
+                                    const overrideKey = `${s.id}__${tk}__speak`;
                                     return (
                                       <div key={tk} className="text-[11px] bg-gray-50 rounded-lg px-2 py-1 flex items-center gap-1">
                                         <span className="text-gray-400">{label.split('(')[0]}</span>
                                         {STAGE_ORDER.map(st => (
                                           <span key={st} className={p[st] ? 'text-green-500' : 'text-gray-300'}>{STAGE_ICON[st]}</span>
                                         ))}
+                                        {!p.speak && (
+                                          <button
+                                            disabled={stampingKey === overrideKey}
+                                            onClick={() => handleOverrideSpeak(s, tk)}
+                                            title="學生麥克風偵測不到時，唸給老師聽確認後手動過口說關"
+                                            className="ml-1 px-1.5 py-0.5 bg-rose-100 text-rose-600 rounded font-bold hover:bg-rose-200 disabled:opacity-50"
+                                          >
+                                            ✅口說過關
+                                          </button>
+                                        )}
                                       </div>
                                     );
                                   })}
@@ -3171,6 +3346,13 @@
           }, []);
 
           useEffect(() => {
+            // 剛建立帳號 (第一次登入) 時，Firestore 的學生文件是另一個地方 (studentLogin)
+            // 才在寫入，這裡訂閱到的第一筆快照有機率比那個寫入還早一步收到「還不存在」，
+            // 如果看到「不存在」就馬上登出，會把剛創好帳號的學生立刻踢回登入畫面、
+            // 卡在「一直要重打密碼」的迴圈。所以「不存在」時先等一下、重新確認一次，
+            // 真的確定帳號被清掉了 (例如老師重置密碼後的舊帳號) 才登出。
+            let missingDocTimer = null;
+
             const unsub = auth.onAuthStateChanged(async (user) => {
               setLoginError('');
               if (!user) {
@@ -3180,23 +3362,39 @@
                 setAuthChecked(true);
                 return;
               }
-              const teacherDoc = await db.collection('teachers').doc(user.uid).get();
-              if (teacherDoc.exists) {
-                setRole('teacher');
-                setTeacherProfile({ id: user.uid, ...teacherDoc.data() });
-                setAuthChecked(true);
-                return;
+              try {
+                const teacherDoc = await db.collection('teachers').doc(user.uid).get();
+                if (teacherDoc.exists) {
+                  setRole('teacher');
+                  setTeacherProfile({ id: user.uid, ...teacherDoc.data() });
+                  setAuthChecked(true);
+                  return;
+                }
+              } catch (err) {
+                // 讀不到 (例如規則還沒發布好、暫時離線) 就先當一般使用者處理，
+                // 至少讓畫面能往下跑，不要卡在「載入中」出不去。
               }
               // 訂閱學生資料 (即時更新進度)
               setRole('student');
               db.collection('students').doc(user.uid).onSnapshot(snap => {
                 if (snap.exists) {
+                  if (missingDocTimer) { clearTimeout(missingDocTimer); missingDocTimer = null; }
                   setStudentProfile({ id: user.uid, ...snap.data() });
-                } else {
-                  // 這個帳號的資料被清掉了 (通常是老師重置過密碼)，強制登出
-                  // 讓學生用新密碼重新登入。
-                  setStudentProfile(null);
-                  auth.signOut();
+                } else if (!missingDocTimer) {
+                  missingDocTimer = setTimeout(async () => {
+                    missingDocTimer = null;
+                    try {
+                      const recheck = await db.collection('students').doc(user.uid).get();
+                      if (!recheck.exists) {
+                        // 確認過還是不存在，這才是真的被清掉了 (通常是老師重置過密碼)，
+                        // 強制登出讓學生用新密碼重新登入。
+                        setStudentProfile(null);
+                        auth.signOut();
+                      }
+                    } catch (err) {
+                      // 重新確認也讀不到就先不要登出，避免暫時性網路問題把人踢出去
+                    }
+                  }, 1500);
                 }
               });
               db.collection('students').doc(user.uid).collection('pointLogs').onSnapshot(snap => {
@@ -3206,7 +3404,7 @@
               });
               setAuthChecked(true);
             });
-            return () => unsub();
+            return () => { unsub(); if (missingDocTimer) clearTimeout(missingDocTimer); };
           }, []);
 
           // 學生登入：先查一下這個「班級+座號」目前對應到哪個帳號
@@ -3214,7 +3412,7 @@
           // 接著先試著用輸入的密碼登入；如果失敗，就當作是第一次使用，用同一組
           // 密碼 (加上姓名) 自動建立帳號。如果其實帳號早就存在、只是密碼打錯了，
           // 第二次的建立帳號也會失敗 (email-already-in-use)，這時候才真正顯示「密碼不正確」。
-          const studentLogin = async (className, seat, password, name) => {
+          const studentLogin = async (className, seat, password, name, englishName) => {
             setBusy(true); setLoginError('');
             const seatId = classSeatKey(className, seat);
             let email = classSeatToEmail(className, seat);
@@ -3233,6 +3431,7 @@
                 const cred = await auth.createUserWithEmailAndPassword(email, password);
                 await db.collection('students').doc(cred.user.uid).set({
                   name: (name && name.trim()) || `${className} ${seat}號`,
+                  englishName: (englishName && englishName.trim()) || '',
                   className, seatNumber: seat, progress: {},
                   createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 });
@@ -3314,7 +3513,7 @@
             });
           };
 
-          // 老師蓋章：一個任務(單元)四關全過後，老師點擊蓋章給 5 點，
+          // 老師蓋章：一個任務(單元)六關全過後，老師點擊蓋章給 5 點，
           // 每個任務只能蓋一次章。
           const teacherStampTask = async (studentId, tKey, grade, topic, teacherName) => {
             const studentRef = db.collection('students').doc(studentId);
@@ -3333,6 +3532,22 @@
               source: 'teacher', by: teacherName, topicKey: tKey,
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             });
+          };
+
+          // 老師手動幫學生過「口說」關：麥克風常常誤判，學生唸給老師聽、
+          // 老師確認發音沒問題之後，就用這個直接把口說關標記成通過，
+          // 不用真的靠麥克風偵測，下一關 (配對) 就會跟著解鎖。
+          const teacherOverrideSpeak = async (studentId, tKey, teacherName) => {
+            const studentRef = db.collection('students').doc(studentId);
+            await studentRef.set({
+              progress: {
+                [tKey]: {
+                  speak: true,
+                  speakOverriddenBy: teacherName,
+                  speakOverriddenAt: firebase.firestore.FieldValue.serverTimestamp(),
+                }
+              }
+            }, { merge: true });
           };
 
           // 老師額外加點/扣點 (蓋章以外的彈性加點，例如課堂表現)
@@ -3363,6 +3578,7 @@
 
             await newRef.set({
               name: student.name,
+              englishName: student.englishName || '',
               className: student.className,
               seatNumber: student.seatNumber,
               progress: student.progress || {},
@@ -3408,6 +3624,7 @@
                 onStampTask={teacherStampTask}
                 onAwardPoints={teacherAwardPoints}
                 onResetPassword={teacherResetPassword}
+                onOverrideSpeak={teacherOverrideSpeak}
                 onExit={logout}
               />
             );
@@ -3418,6 +3635,7 @@
               <LearningApp
                 studentId={studentProfile.id}
                 studentName={studentProfile.name}
+                englishName={studentProfile.englishName || ''}
                 className={studentProfile.className}
                 seatNumber={studentProfile.seatNumber}
                 progress={studentProfile.progress || {}}
