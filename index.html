@@ -3425,6 +3425,9 @@
             try {
               await onStampTask(student.id, tKey, grade, topic, teacherName);
               setPointsMap(prev => ({ ...prev, [student.id]: (prev[student.id] || 0) + TASK_STAMP_POINTS }));
+            } catch (err) {
+              console.error('[nypspassport] 蓋章失敗:', err);
+              alert('蓋章失敗，請檢查網路連線或稍後再試，如果一直失敗請確認 Firestore 安全規則是否已發布。');
             } finally {
               setStampingKey(null);
             }
@@ -3437,6 +3440,9 @@
             setStampingKey(key);
             try {
               await onOverrideSpeak(student.id, tKey, teacherName);
+            } catch (err) {
+              console.error('[nypspassport] 口說過關失敗:', err);
+              alert('操作失敗，請檢查網路連線或稍後再試，如果一直失敗請確認 Firestore 安全規則是否已發布。');
             } finally {
               setStampingKey(null);
             }
@@ -3959,13 +3965,27 @@
 
           // 學生完成一個關卡時呼叫：只記錄進度，不自動給點數
           // (點數改由老師「蓋章」核發，見 teacherStampTask)
+          // 寫入 progress/mistakes/badges 這幾個背景寫入的動作 (學生自己看不到
+          // 有沒有寫成功) 全部包一層 try/catch，寫失敗時在 console 印出清楚的
+          // 提示——最常見的原因是 Firestore 安全規則 (firestore.rules) 還沒
+          // 重新發布，導致 permission-denied，這種情況下如果沒有這層 log，
+          // 畫面上完全看不出任何異狀，只會覺得「這個功能好像沒作用」。
+          const logWriteError = (what, err) => {
+            console.error(`[nypspassport] 寫入「${what}」失敗:`, err && err.code, err && err.message);
+            if (err && err.code === 'permission-denied') {
+              console.error('[nypspassport] 很可能是 firestore.rules 還沒在 Firebase Console 重新發布，請確認 Firestore Database → 規則 貼的是最新版本並按「發布」。');
+            }
+          };
+
           const onStagePass = async (grade, topic, stage) => {
             if (!studentProfile) return;
             const tKey = topicKey(grade, topic);
             const studentRef = db.collection('students').doc(studentProfile.id);
-            await studentRef.set({
-              progress: { [tKey]: { [stage]: true, updatedAt: firebase.firestore.FieldValue.serverTimestamp() } }
-            }, { merge: true });
+            try {
+              await studentRef.set({
+                progress: { [tKey]: { [stage]: true, updatedAt: firebase.firestore.FieldValue.serverTimestamp() } }
+              }, { merge: true });
+            } catch (err) { logWriteError('progress (過關)', err); }
           };
 
           // 學生一打開某個任務的任何一關 (不管有沒有過關) 就先留一筆紀錄，
@@ -3975,9 +3995,11 @@
             if (!studentProfile) return;
             const tKey = topicKey(grade, topic);
             const studentRef = db.collection('students').doc(studentProfile.id);
-            await studentRef.set({
-              progress: { [tKey]: { updatedAt: firebase.firestore.FieldValue.serverTimestamp() } }
-            }, { merge: true });
+            try {
+              await studentRef.set({
+                progress: { [tKey]: { updatedAt: firebase.firestore.FieldValue.serverTimestamp() } }
+              }, { merge: true });
+            } catch (err) { logWriteError('progress (開始練習)', err); }
           };
 
           // 學生答錯聽力/閱讀測驗題目時，記錄到 mistakes 欄位 (錯題本)；
@@ -3986,33 +4008,39 @@
             if (!studentProfile) return;
             const key = mistakeKey(grade, topic, item.en);
             const studentRef = db.collection('students').doc(studentProfile.id);
-            await studentRef.set({
-              mistakes: {
-                [key]: {
-                  grade, topic, en: item.en, zh: item.zh, stage,
-                  count: firebase.firestore.FieldValue.increment(1),
-                  updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            try {
+              await studentRef.set({
+                mistakes: {
+                  [key]: {
+                    grade, topic, en: item.en, zh: item.zh, stage,
+                    count: firebase.firestore.FieldValue.increment(1),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                  }
                 }
-              }
-            }, { merge: true });
+              }, { merge: true });
+            } catch (err) { logWriteError('mistakes (錯題本)', err); }
           };
 
           const onClearMistake = async (key) => {
             if (!studentProfile || !key) return;
             const studentRef = db.collection('students').doc(studentProfile.id);
-            await studentRef.set({
-              mistakes: { [key]: firebase.firestore.FieldValue.delete() }
-            }, { merge: true });
+            try {
+              await studentRef.set({
+                mistakes: { [key]: firebase.firestore.FieldValue.delete() }
+              }, { merge: true });
+            } catch (err) { logWriteError('mistakes (移除錯題)', err); }
           };
 
-          // 事件型徽章：目前只有「字母配對高手」用到，發生過一次就記錄下來，
-          // arrayUnion 本身就有防重複的效果，重複呼叫也不會出現兩次。
+          // 事件型徽章：目前只有「字母配對高手」「挑戰達人」用到，發生過一次
+          // 就記錄下來，arrayUnion 本身就有防重複的效果，重複呼叫也不會出現兩次。
           const onBadgeEarn = async (badgeId) => {
             if (!studentProfile || !badgeId) return;
             const studentRef = db.collection('students').doc(studentProfile.id);
-            await studentRef.set({
-              badges: firebase.firestore.FieldValue.arrayUnion(badgeId)
-            }, { merge: true });
+            try {
+              await studentRef.set({
+                badges: firebase.firestore.FieldValue.arrayUnion(badgeId)
+              }, { merge: true });
+            } catch (err) { logWriteError('badges (徽章)', err); }
           };
 
           const teacherAddClass = (name) => {
