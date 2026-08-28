@@ -172,7 +172,7 @@
         // 徽章目錄。因為學生不是每天登入 (只有上英語課才會用系統)，所以徽章
         // 刻意不設計成「連續登入天數」這種每天型的機制，而是看「累積練習成果」。
         // 大部分徽章都是從既有的 progress 資料即時算出來的 (isEarned)，不用
-        // 額外寫入 Firestore；只有 event: true 的徽章 (目前只有字母配對遊戲)
+        // 額外寫入 Firestore；只有 event: true 的徽章 (目前只有挑戰模式)
         // 是「發生過一次就算」的事件型成就，需要另外寫進 badges 欄位保存起來。
         const BADGE_DEFS = [
           { id: 'stamp_master', emoji: '🏅', title: '蓋章達人', desc: '累積蓋章完成 5 個任務',
@@ -185,7 +185,6 @@
             isEarned: (ctx) => ctx.stageCounts.spell >= 5 },
           { id: 'cross_grade', emoji: '🌟', title: '跨年級達成', desc: '每個年級都至少蓋章完成一個任務',
             isEarned: (ctx) => ctx.grades.length > 0 && ctx.grades.every(g => ctx.stampedGradeSet.has(g)) },
-          { id: 'alphabet_master', emoji: '🔤', title: '字母配對高手', desc: '完成一次字母大小寫配對遊戲', event: true },
           { id: 'challenge_champion', emoji: '🏆', title: '挑戰達人', desc: '完成一次綜合挑戰模式 (10 題)', event: true },
         ];
         // 點數只由老師「蓋章」核發，不再由系統自動給，避免被竄改，
@@ -888,39 +887,6 @@
           return merged;
         };
 
-        // --- 字母練習資料 (主要給三年級熟悉字母大小寫、字母名稱與發音例字用) ---
-        // 說明：瀏覽器的語音功能沒辦法唸出單獨的「音標音」(例如 A 的 /æ/)，
-        // 所以這裡實際做的是「字母名稱」(唸 A 這個字母本身) + 「例字」(Apple)，
-        // 幫助學生建立字母跟例字發音之間的連結，這也是自然發音法最常見的教法。
-        const ALPHABET_DATA = [
-          { letter: 'A', word: 'Apple', zh: '蘋果', emoji: '🍎' },
-          { letter: 'B', word: 'Ball', zh: '球', emoji: '⚽' },
-          { letter: 'C', word: 'Cat', zh: '貓', emoji: '🐱' },
-          { letter: 'D', word: 'Dog', zh: '狗', emoji: '🐶' },
-          { letter: 'E', word: 'Elephant', zh: '大象', emoji: '🐘' },
-          { letter: 'F', word: 'Fish', zh: '魚', emoji: '🐟' },
-          { letter: 'G', word: 'Grape', zh: '葡萄', emoji: '🍇' },
-          { letter: 'H', word: 'Hat', zh: '帽子', emoji: '🎩' },
-          { letter: 'I', word: 'Ice Cream', zh: '冰淇淋', emoji: '🍦' },
-          { letter: 'J', word: 'Juice', zh: '果汁', emoji: '🧃' },
-          { letter: 'K', word: 'Kite', zh: '風箏', emoji: '🪁' },
-          { letter: 'L', word: 'Lion', zh: '獅子', emoji: '🦁' },
-          { letter: 'M', word: 'Monkey', zh: '猴子', emoji: '🐵' },
-          { letter: 'N', word: 'Nose', zh: '鼻子', emoji: '👃' },
-          { letter: 'O', word: 'Orange', zh: '橘子', emoji: '🍊' },
-          { letter: 'P', word: 'Pig', zh: '豬', emoji: '🐷' },
-          { letter: 'Q', word: 'Queen', zh: '皇后', emoji: '👸' },
-          { letter: 'R', word: 'Rabbit', zh: '兔子', emoji: '🐰' },
-          { letter: 'S', word: 'Sun', zh: '太陽', emoji: '☀️' },
-          { letter: 'T', word: 'Tiger', zh: '老虎', emoji: '🐯' },
-          { letter: 'U', word: 'Umbrella', zh: '雨傘', emoji: '☂️' },
-          { letter: 'V', word: 'Van', zh: '廂型車', emoji: '🚐' },
-          { letter: 'W', word: 'Watermelon', zh: '西瓜', emoji: '🍉' },
-          { letter: 'X', word: 'X-ray', zh: 'X光', emoji: '🩻' },
-          { letter: 'Y', word: 'Yo-yo', zh: '溜溜球', emoji: '🪀' },
-          { letter: 'Z', word: 'Zebra', zh: '斑馬', emoji: '🦓' },
-        ];
-
         // --- 輔助函數 ---
         const getIcon = (text) => {
           const lower = text.toLowerCase();
@@ -1482,7 +1448,6 @@
           const [spellingStats, setSpellingStats] = useState({ correct: 0, total: 0 });
           const [scrambleParts, setScrambleParts] = useState({ available: [], placed: [] });
           const [stageReported, setStageReported] = useState(false);
-          const [alphabetBadgeReported, setAlphabetBadgeReported] = useState(false);
           const [challengeBadgeReported, setChallengeBadgeReported] = useState(false);
 
           // 口說練習 state：一題一題輪流用麥克風唸，偵測不到的題目會被記下來，
@@ -1582,23 +1547,6 @@
             // 沒有全部唸對，這個任務也會出現在老師後台的「進行中」列表，
             // 老師才看得到「✅口說過關」按鈕手動幫學生過關。
             onTopicStart && onTopicStart(grade, topic);
-          };
-
-          // 字母大小寫配對遊戲：重複使用配對遊戲的同一套邏輯 (gameCards/handleCardClick)，
-          // 只是把「英文/中文」換成「大寫字母/小寫字母」。
-          const initAlphabetGame = () => {
-            const picked = [...ALPHABET_DATA].sort(() => Math.random() - 0.5).slice(0, 8);
-            let cards = picked.flatMap((item, index) => [
-              { id: `up-${index}`, content: item.letter, type: 'en', pairId: index },
-              { id: `low-${index}`, content: item.letter.toLowerCase(), type: 'zh', pairId: index }
-            ]);
-            cards = cards.sort(() => Math.random() - 0.5);
-            setGameCards(cards);
-            setMatchedPairs([]);
-            setSelectedCards([]);
-            setIsWrong(false);
-            setAlphabetBadgeReported(false);
-            setMode('alphabet_game');
           };
 
           const initArrange = (grade, topic) => {
@@ -1807,17 +1755,6 @@
               onStagePass && onStagePass(currentGrade, currentTopic, 'match', gameCards.length / 2);
             }
           }, [mode, matchedPairs, gameCards, stageReported]);
-
-          // 字母大小寫配對遊戲全部配完時，發一個「字母配對高手」徽章 (事件型
-          // 成就，只有這個需要另外寫進 badges 欄位保存，因為這個遊戲本身沒有
-          // 對應到任何 progress 任務可以拿來當作已完成的依據)。
-          useEffect(() => {
-            if (mode === 'alphabet_game' && gameCards.length > 0 &&
-                matchedPairs.length * 2 === gameCards.length && !alphabetBadgeReported) {
-              setAlphabetBadgeReported(true);
-              onBadgeEarn && onBadgeEarn('alphabet_master');
-            }
-          }, [mode, matchedPairs, gameCards, alphabetBadgeReported]);
 
           // 綜合挑戰模式跑完 10 題 (不論分數高低) 就發一個「挑戰達人」徽章，
           // 這也是事件型成就，跟挑戰模式本身的分數/題目沒有對應到任何
@@ -2049,18 +1986,6 @@
                     })}
                     </div>
 
-                    <h2 className="text-xl font-bold text-emerald-800 mb-4 flex items-center gap-2"><Icons.Keyboard /> 字母練習 ABC</h2>
-                    <button
-                        onClick={() => setMode('alphabet_menu')}
-                        className="w-full mb-10 bg-gradient-to-r from-emerald-400 to-teal-500 p-6 rounded-3xl shadow-xl border-b-8 border-emerald-700 hover:translate-y-[-2px] transition-all flex items-center gap-4 text-white"
-                    >
-                        <span className="text-5xl">🔤</span>
-                        <div className="text-left flex-1">
-                          <div className="text-2xl font-bold tracking-widest">Aa Bb Cc...</div>
-                          <div className="text-emerald-50 mt-1">認識26個字母的大小寫、名稱與發音例字 (推薦三年級)</div>
-                        </div>
-                    </button>
-
                     <h2 className="text-xl font-bold text-orange-800 mb-4 flex items-center gap-2"><Icons.Zap /> 綜合挑戰 (Challenge)</h2>
                     <button
                         onClick={() => setMode('challenge_select')}
@@ -2214,122 +2139,6 @@
                       </div>
                     </div>
                   ))}
-                </div>
-              </div>
-            );
-          }
-
-          // 1c. 字母練習：選單 (字母卡 / 大小寫配對)
-          if (mode === 'alphabet_menu') {
-            return (
-              <div className="min-h-screen bg-emerald-50 font-sans">
-                <Header title="字母練習 ABC" subtitle="認識26個字母" onBack={() => setMode('menu')} />
-                <div className="p-6 max-w-2xl mx-auto space-y-4">
-                  <button
-                    onClick={() => setMode('alphabet_cards')}
-                    className="w-full bg-white p-6 rounded-2xl shadow-lg border-b-8 border-emerald-200 hover:border-emerald-300 hover:translate-y-[-2px] transition-all flex items-center gap-4"
-                  >
-                    <span className="text-5xl">🗂️</span>
-                    <div className="text-left flex-1">
-                      <div className="font-bold text-xl text-gray-700">字母卡</div>
-                      <div className="text-gray-400 text-sm">點一下聽字母名稱，點例字聽發音</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={initAlphabetGame}
-                    className="w-full bg-white p-6 rounded-2xl shadow-lg border-b-8 border-teal-200 hover:border-teal-300 hover:translate-y-[-2px] transition-all flex items-center gap-4"
-                  >
-                    <span className="text-5xl">🔠</span>
-                    <div className="text-left flex-1">
-                      <div className="font-bold text-xl text-gray-700">大小寫配對遊戲</div>
-                      <div className="text-gray-400 text-sm">練習大寫 A 配小寫 a</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            );
-          }
-
-          // 1d. 字母卡
-          if (mode === 'alphabet_cards') {
-            return (
-              <div className="min-h-screen bg-emerald-50 font-sans pb-10">
-                <Header title="字母卡" subtitle="點字母聽名稱，點例字聽發音" onBack={() => setMode('alphabet_menu')} />
-                <div className="p-4 max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {ALPHABET_DATA.map(item => (
-                    <div key={item.letter} className="bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-emerald-200 p-4 text-center transition-all">
-                      <button
-                        onClick={() => speak(item.letter)}
-                        className={`w-full mb-2 text-4xl font-black tracking-wide font-serif rounded-xl py-2 transition-all ${speakingItem === item.letter ? 'bg-emerald-100 text-emerald-600' : 'text-gray-700 hover:bg-emerald-50'}`}
-                      >
-                        {item.letter}{item.letter.toLowerCase()}
-                      </button>
-                      <button
-                        onClick={() => speak(item.word)}
-                        className={`w-full flex items-center justify-center gap-2 rounded-xl py-2 transition-all ${speakingItem === item.word ? 'bg-sky-100' : 'hover:bg-sky-50'}`}
-                      >
-                        <span className="text-2xl">{item.emoji}</span>
-                        <span className="text-sm font-bold text-gray-600">{item.word}</span>
-                        <Icons.Volume2 size={14} className="text-sky-400" />
-                      </button>
-                      <p className="text-xs text-gray-300 mt-1">{item.zh}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          }
-
-          // 1e. 字母大小寫配對遊戲 (跟 mode 'game' 共用同一套 gameCards 邏輯)
-          if (mode === 'alphabet_game') {
-            const isWin = matchedPairs.length * 2 === gameCards.length && gameCards.length > 0;
-            return (
-              <div className="min-h-screen bg-teal-50 font-sans pb-20">
-                <Header title="大小寫配對" subtitle="配對練習 (Matching Game)" onBack={() => setMode('alphabet_menu')} />
-                <div className="p-4 max-w-4xl mx-auto">
-                  {isWin ? (
-                    <div className="text-center py-12 animate-bounce-in bg-white rounded-3xl shadow-xl p-8">
-                      <div className="text-8xl mb-4 text-yellow-400 mx-auto w-fit"><Icons.Trophy size={80} fill="currentColor"/></div>
-                      <h2 className="text-3xl font-bold text-teal-600 mb-4">恭喜完成!</h2>
-                      <div className="flex justify-center gap-4 flex-wrap">
-                        <button onClick={initAlphabetGame} className="px-6 py-3 bg-teal-500 text-white rounded-full font-bold shadow-lg hover:bg-teal-600 flex items-center gap-2">
-                          <Icons.RefreshCw size={20}/> 再玩一次
-                        </button>
-                        <button onClick={() => setMode('alphabet_menu')} className="px-6 py-3 bg-gray-200 text-gray-700 rounded-full font-bold shadow hover:bg-gray-300 flex items-center gap-2">
-                          <Icons.BookOpen size={20}/> 回到字母練習
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex justify-between items-center mb-4 px-2">
-                        <span className="font-bold text-teal-600 bg-teal-100 px-3 py-1 rounded-full">Score: {matchedPairs.length} / {gameCards.length / 2}</span>
-                        <span className="text-sm text-gray-500">點擊大寫，再點擊小寫</span>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {gameCards.map((card, index) => {
-                          const isSelected = selectedCards.includes(index);
-                          const isMatched = matchedPairs.includes(card.pairId.toString());
-                          const isWrongCard = isWrong && isSelected;
-                          if (isMatched) return <div key={card.id} className="invisible h-24"></div>;
-                          return (
-                            <button
-                              key={card.id}
-                              onClick={() => handleCardClick(index)}
-                              className={`
-                                h-24 md:h-32 rounded-xl p-2 flex flex-col items-center justify-center text-center shadow-sm transition-all text-3xl font-black border-b-4 active:border-b-0 active:translate-y-1 relative overflow-hidden
-                                ${isSelected ? 'bg-teal-100 border-teal-500' : 'bg-white border-gray-200 hover:border-teal-300'}
-                                ${isWrongCard ? 'animate-shake bg-red-100 border-red-400' : ''}
-                                ${card.type === 'en' ? 'text-teal-900' : 'text-gray-500'}
-                              `}
-                            >
-                              <span className="z-10 relative">{card.content}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
                 </div>
               </div>
             );
@@ -4031,7 +3840,7 @@
             } catch (err) { logWriteError('mistakes (移除錯題)', err); }
           };
 
-          // 事件型徽章：目前只有「字母配對高手」「挑戰達人」用到，發生過一次
+          // 事件型徽章：目前只有「挑戰達人」用到，發生過一次
           // 就記錄下來，arrayUnion 本身就有防重複的效果，重複呼叫也不會出現兩次。
           const onBadgeEarn = async (badgeId) => {
             if (!studentProfile || !badgeId) return;
