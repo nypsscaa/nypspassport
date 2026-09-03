@@ -153,16 +153,12 @@
         // 「測試」這個班級不會因為老師之後用後台新增了別的班級就消失不見。
         const mergeClasses = (list) => Array.from(new Set([...DEFAULT_CLASSES, ...(list || [])]));
 
-        // 老師只有固定三位、共用同一組密碼，不用個別註冊帳號。
-        // 第一次用某個名字登入時，系統會自動用這組密碼建立該老師的帳號；
-        // 之後同一個名字要用同一組密碼才能登入。
-        const TEACHER_NAMES = ['一蓁', '逸蓁', '士頡'];
+        // 老師是「通用帳號」，不用選是哪一位老師，共用同一組密碼直接登入即可。
+        // 第一次登入時，系統會自動用這組密碼建立這個通用帳號；之後任何人
+        // 只要輸入同一組密碼，都是用這同一個通用帳號登入老師後台。
         const TEACHER_SHARED_PASSWORD = '1646276077';
-        const teacherNameToEmail = (name) => {
-          const raw = `teacher-${name}`.trim().toLowerCase();
-          const safe = encodeURIComponent(raw).replace(/%/g, '_').replace(/[^a-z0-9_.\-]/gi, '_').toLowerCase();
-          return `${safe}@nypspassport.local`;
-        };
+        const TEACHER_EMAIL = 'teacher@nypspassport.local';
+        const TEACHER_DISPLAY_NAME = '老師';
 
         // 口說 → 配對 → 聽得懂 → 看得懂 → 排得出來 → 拼得出來，一定要照順序解鎖。
         const STAGE_ORDER = ['speak', 'match', 'listen', 'look', 'arrange', 'spell'];
@@ -189,7 +185,7 @@
         ];
         // 點數只由老師「蓋章」核發，不再由系統自動給，避免被竄改，
         // 也讓「蓋章」這個動作本身變成老師肯定學生的儀式感。
-        const TASK_STAMP_POINTS = 5;
+        const TASK_STAMP_POINTS = 10;
         // 超過幾天沒有任何關卡活動，就算「好久沒複習/需要關心」
         const STALE_DAYS = 14;
 
@@ -3092,7 +3088,6 @@
         };
 
         const TeacherLoginScreen = ({ onLogin, onBack, error, busy }) => {
-          const [name, setName] = useState('');
           const [password, setPassword] = useState('');
           return (
             <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6 font-sans">
@@ -3102,27 +3097,14 @@
                 </button>
                 <h2 className="text-xl font-bold text-gray-800 mb-6 text-center">老師登入</h2>
 
-                <label className="block text-sm font-bold text-gray-500 mb-2">請選擇你是哪一位老師</label>
-                <div className="grid grid-cols-3 gap-2 mb-6">
-                  {TEACHER_NAMES.map(n => (
-                    <button
-                      key={n}
-                      onClick={() => setName(n)}
-                      className={`py-3 rounded-xl font-bold border-2 transition-all ${name === n ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200 hover:border-orange-300'}`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-
                 <label className="block text-sm font-bold text-gray-500 mb-1">密碼</label>
                 <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="共用密碼" className="w-full p-3 mb-6 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-400" />
 
                 {error && <p className="text-red-500 text-sm mb-4 text-center">{error}</p>}
 
                 <button
-                  disabled={busy || !name || !password}
-                  onClick={() => onLogin(name, password)}
+                  disabled={busy || !password}
+                  onClick={() => onLogin(password)}
                   className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg"
                 >
                   {busy ? '登入中...' : '登入'}
@@ -3133,7 +3115,7 @@
         };
 
         // --- 老師後台：班級管理 + 學生名冊 + 進度儀表板 + 加點 ---
-        const TeacherDashboard = ({ teacherName, classesList, onAddClass, onAddStudent, onStampTask, onAwardPoints, onResetPassword, onOverrideSpeak, onAddCustomWord, onExit }) => {
+        const TeacherDashboard = ({ teacherName, classesList, onAddClass, onAddStudent, onStampTask, onAwardPoints, onResetPassword, onOverrideSpeak, onAddCustomWord, onMoveStudent, onExit }) => {
           const [selectedClass, setSelectedClass] = useState(classesList[0] || '');
           const [students, setStudents] = useState([]);
           const [pointsMap, setPointsMap] = useState({});
@@ -3156,6 +3138,13 @@
           const [newWord, setNewWord] = useState({ grade: Object.keys(curriculumData)[0] || '', topic: '', en: '', zh: '' });
           const [addWordBusy, setAddWordBusy] = useState(false);
           const [addWordMsg, setAddWordMsg] = useState('');
+          const [moveTarget, setMoveTarget] = useState(null);
+          const [moveClassName, setMoveClassName] = useState('');
+          const [moveSeat, setMoveSeat] = useState('');
+          const [moveBusy, setMoveBusy] = useState(false);
+          const [moveError, setMoveError] = useState('');
+          const [moveConflict, setMoveConflict] = useState(null);
+          const [moveDoneMsg, setMoveDoneMsg] = useState('');
 
           useEffect(() => {
             if (!selectedClass) { setStudents([]); return; }
@@ -3268,6 +3257,33 @@
               setResetError('重置失敗，請再試一次');
             }
             setResetBusy(false);
+          };
+
+          // 搬班級/年級：升年級、轉班的時候用，進度/錯題/徽章/點數紀錄都會保留。
+          const openMove = (student) => {
+            setMoveTarget(student);
+            setMoveClassName(student.className);
+            setMoveSeat('');
+            setMoveError('');
+            setMoveConflict(null);
+            setMoveDoneMsg('');
+          };
+
+          const submitMove = async (confirmOverwrite) => {
+            if (!moveTarget || !moveClassName || !moveSeat) return;
+            setMoveBusy(true); setMoveError('');
+            try {
+              const result = await onMoveStudent(moveTarget, moveClassName, moveSeat, confirmOverwrite);
+              if (result && result.conflict) {
+                setMoveConflict(result.existing);
+              } else {
+                setMoveDoneMsg(`已將 ${moveTarget.name} 搬到 ${moveClassName} ${moveSeat} 號！`);
+                setMoveConflict(null);
+              }
+            } catch (e) {
+              setMoveError(e.message || '搬移失敗，請再試一次');
+            }
+            setMoveBusy(false);
           };
 
           // 待關心名單：這個班級裡「完全還沒開始練習」或「超過 STALE_DAYS 天
@@ -3469,6 +3485,12 @@
                                   >
                                     🔑 重置密碼
                                   </button>
+                                  <button
+                                    onClick={() => openMove(s)}
+                                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full text-xs font-bold hover:bg-gray-200"
+                                  >
+                                    🔀 搬班/年級
+                                  </button>
                                 </div>
                               </div>
 
@@ -3587,6 +3609,77 @@
                             {resetBusy ? '處理中...' : '確認重置'}
                           </button>
                         </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {moveTarget && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50">
+                  <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+                    <h3 className="font-bold text-lg text-gray-800 mb-2">搬移 {moveTarget.name} 的班級/座號</h3>
+                    <p className="text-xs text-gray-400 mb-4">進度、錯題本、徽章、點數紀錄都會保留，只是換一個班級/座號。</p>
+
+                    {moveDoneMsg ? (
+                      <>
+                        <div className="bg-green-50 text-green-700 text-sm font-bold rounded-xl p-3 mb-4">{moveDoneMsg}</div>
+                        <button onClick={() => setMoveTarget(null)} className="w-full py-2 bg-gray-100 text-gray-600 rounded-xl font-bold">關閉</button>
+                      </>
+                    ) : (
+                      <>
+                        <label className="text-xs font-bold text-gray-400">搬到班級</label>
+                        <select
+                          value={moveClassName}
+                          onChange={e => { setMoveClassName(e.target.value); setMoveSeat(''); setMoveConflict(null); }}
+                          className="w-full p-2 mb-3 border-2 border-gray-200 rounded-xl outline-none"
+                        >
+                          {classesList.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+
+                        <label className="text-xs font-bold text-gray-400">座號</label>
+                        <select
+                          value={moveSeat}
+                          onChange={e => { setMoveSeat(e.target.value); setMoveConflict(null); }}
+                          className="w-full p-2 mb-3 border-2 border-gray-200 rounded-xl outline-none"
+                        >
+                          <option value="">請選擇</option>
+                          {Array.from({ length: CLASS_SEAT_COUNTS[moveClassName] || 40 }, (_, i) => String(i + 1)).map(s => (
+                            <option key={s} value={s}>{s} 號</option>
+                          ))}
+                        </select>
+
+                        {moveError && <p className="text-red-500 text-xs mb-3">{moveError}</p>}
+
+                        {moveConflict ? (
+                          <>
+                            <div className="bg-amber-50 border-2 border-amber-200 text-amber-700 text-xs rounded-xl p-3 mb-4">
+                              ⚠️ {moveClassName} {moveSeat} 號目前已經有「{moveConflict.name}」的資料（已蓋章 {moveConflict.stampedCount} 個任務）。
+                              確認覆蓋的話，這個座位的登入帳號/密碼不會變，但資料內容會換成 {moveTarget.name} 的，兩邊的進度/錯題/徽章會合併保留、不會互相蓋掉。
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => setMoveTarget(null)} className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold">取消</button>
+                              <button
+                                disabled={moveBusy}
+                                onClick={() => submitMove(true)}
+                                className="flex-1 py-2 bg-amber-500 text-white rounded-xl font-bold hover:bg-amber-600 disabled:opacity-50"
+                              >
+                                {moveBusy ? '處理中...' : '確認覆蓋'}
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button onClick={() => setMoveTarget(null)} className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold">取消</button>
+                            <button
+                              disabled={moveBusy || !moveClassName || !moveSeat}
+                              onClick={() => submitMove(false)}
+                              className="flex-1 py-2 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 disabled:opacity-50"
+                            >
+                              {moveBusy ? '處理中...' : '確認搬移'}
+                            </button>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -3739,11 +3832,11 @@
             setBusy(false);
           };
 
-          // 老師登入：只有 TEACHER_NAMES 這三個名字可以選，密碼固定同一組。
-          // 第一次用某個名字登入時 (該帳號還不存在)，就用這組密碼自動建立帳號。
-          const teacherLogin = async (name, password) => {
+          // 老師登入：不用選是哪一位老師，通用帳號、密碼固定同一組。
+          // 第一次登入時 (通用帳號還不存在)，就用這組密碼自動建立帳號。
+          const teacherLogin = async (password) => {
             setBusy(true); setLoginError('');
-            const email = teacherNameToEmail(name);
+            const email = TEACHER_EMAIL;
             try {
               await auth.signInWithEmailAndPassword(email, password);
             } catch (signInErr) {
@@ -3755,7 +3848,7 @@
               try {
                 const cred = await auth.createUserWithEmailAndPassword(email, password);
                 await db.collection('teachers').doc(cred.user.uid).set({
-                  name, email, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                  name: TEACHER_DISPLAY_NAME, email, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 });
               } catch (createErr) {
                 if (createErr.code === 'auth/operation-not-allowed') {
@@ -3868,14 +3961,21 @@
             }, { merge: true });
           };
 
+          // 用「帶版本號」的信箱建立帳號 (跟老師重置密碼、搬班級用同一招)，
+          // 這樣就算這個座號之前有別的學生用過 (例如升年級搬走)、舊帳號的
+          // 信箱還留著，也不會撞到、導致新增失敗；並留一筆 classSeat 指向
+          // 資料，讓這個座號之後登入都找得到這個新帳號。
           const teacherAddStudent = async (className, seat, name, pin) => {
-            const email = classSeatToEmail(className, seat);
+            const email = classSeatToEmail(className, seat, Date.now());
             const cred = await secondaryAuth.createUserWithEmailAndPassword(email, pin);
             const uid = cred.user.uid;
             await secondaryAuth.signOut();
             await db.collection('students').doc(uid).set({
               name, className, seatNumber: seat, progress: {},
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+            await db.collection('classSeat').doc(classSeatKey(className, seat)).set({
+              email, name, updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             });
           };
 
@@ -3948,6 +4048,8 @@
               className: student.className,
               seatNumber: student.seatNumber,
               progress: student.progress || {},
+              mistakes: student.mistakes || {},
+              badges: student.badges || [],
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             });
 
@@ -3972,6 +4074,86 @@
             await oldRef.delete();
           };
 
+          // 老師「搬班級/年級」：學生升年級或轉班時，把整個帳號 (含進度/
+          // 錯題本/徽章/點數紀錄) 一起搬到新的班級+座號。
+          //
+          // 帳號的登入信箱是照「原本」的班級+座號產生的，如果搬班之後
+          // 什麼都不做，用新班級+座號登入會找不到這個帳號 (系統會誤以為
+          // 是全新的學生)，所以要在新座號寫一筆 classSeat 指向資料，指回
+          // 這個學生「真正」的帳號信箱，之後用新班級+座號登入才能正確
+          // 導回這個帳號 (跟「老師重置密碼」用的是同一套機制)。
+          //
+          // 如果目標座位「已經有其他學生資料」，第一次呼叫 (confirmOverwrite
+          // 為 false) 只會回報衝突、不會真的動資料，讓畫面上跳出確認提示；
+          // 老師確認覆蓋後才會真的執行：保留目標座位原本的登入信箱/密碼
+          // 不變 (學生不用重新記密碼)，但資料內容換成來源學生的，進度/
+          // 錯題/徽章用「合併」保留(兩邊都留著，不會互相蓋掉)。來源學生
+          // 原本的帳號資料會被清掉 (信箱本身因為 Firebase 沒辦法真的刪掉，
+          // 會留著但不會再被用到)。
+          const teacherMoveStudent = async (student, targetClassName, targetSeat, confirmOverwrite) => {
+            if (student.className === targetClassName && String(student.seatNumber) === String(targetSeat)) {
+              throw new Error('目標班級/座號跟原本的一樣，不用搬移');
+            }
+
+            const targetSnap = await db.collection('students')
+              .where('className', '==', targetClassName)
+              .where('seatNumber', '==', targetSeat)
+              .limit(1).get();
+
+            if (!targetSnap.empty && !confirmOverwrite) {
+              const existing = targetSnap.docs[0].data();
+              const stampedCount = Object.values(existing.progress || {}).filter(p => p.stamped).length;
+              return { conflict: true, existing: { name: existing.name, stampedCount } };
+            }
+
+            const sourceSeatId = classSeatKey(student.className, student.seatNumber);
+            const sourcePointerDoc = await db.collection('classSeat').doc(sourceSeatId).get();
+            const sourceEmail = (sourcePointerDoc.exists && sourcePointerDoc.data().email) ||
+              classSeatToEmail(student.className, student.seatNumber);
+
+            if (!targetSnap.empty) {
+              // 覆蓋：目標座位原本的帳號 (email/密碼) 保留不變，資料內容
+              // 換成來源學生的，進度/錯題/徽章合併保留。
+              const targetDoc = targetSnap.docs[0];
+              const targetData = targetDoc.data();
+              const targetRef = targetDoc.ref;
+
+              await targetRef.set({
+                name: student.name,
+                englishName: student.englishName || targetData.englishName || '',
+                progress: { ...(targetData.progress || {}), ...(student.progress || {}) },
+                mistakes: { ...(targetData.mistakes || {}), ...(student.mistakes || {}) },
+                badges: Array.from(new Set([...(targetData.badges || []), ...(student.badges || [])])),
+              }, { merge: true });
+
+              const oldLogsSnap = await db.collection('students').doc(student.id).collection('pointLogs').get();
+              if (!oldLogsSnap.empty) {
+                const batch = db.batch();
+                oldLogsSnap.forEach(d => {
+                  batch.set(targetRef.collection('pointLogs').doc(`moved_${student.id}_${d.id}`), d.data());
+                });
+                await batch.commit();
+              }
+
+              await db.collection('students').doc(student.id).delete();
+            } else {
+              // 座位是空的：直接把來源學生的帳號搬過去，UID/密碼完全不變，
+              // 只是改指向新的班級+座號，並在新座號留一筆 classSeat 指向
+              // 資料指回這個學生真正的信箱。
+              await db.collection('students').doc(student.id).set({
+                className: targetClassName,
+                seatNumber: targetSeat,
+              }, { merge: true });
+
+              await db.collection('classSeat').doc(classSeatKey(targetClassName, targetSeat)).set({
+                email: sourceEmail, name: student.name,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              });
+            }
+
+            return { conflict: false };
+          };
+
           if (!authChecked) {
             return (
               <div className="min-h-screen bg-sky-50 flex items-center justify-center">
@@ -3992,6 +4174,7 @@
                 onResetPassword={teacherResetPassword}
                 onOverrideSpeak={teacherOverrideSpeak}
                 onAddCustomWord={teacherAddCustomWord}
+                onMoveStudent={teacherMoveStudent}
                 onExit={logout}
               />
             );

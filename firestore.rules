@@ -22,16 +22,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    // 只有這三個老師專用的「合成帳號」信箱可以自助建立 /teachers 文件，
-    // 這樣就算有人猜到共用密碼，也沒辦法用別的名字冒充老師帳號。
-    // 這三個值是用程式碼裡 teacherNameToEmail('一蓁' / '逸蓁' / '士頡') 算出來的，
-    // 如果以後要增減老師名單，記得同時改 index.html 的 TEACHER_NAMES 和這裡。
+    // 只有這一個通用老師信箱可以自助建立 /teachers 文件，這樣就算有人猜到
+    // 共用密碼，也沒辦法用別的信箱冒充老師帳號。這個值要跟 index.html 的
+    // TEACHER_EMAIL 常數保持一致。
     function isAllowedTeacherEmail(email) {
-      return email in [
-        'teacher-_e4_b8_80_e8_93_81@nypspassport.local', // 一蓁
-        'teacher-_e9_80_b8_e8_93_81@nypspassport.local', // 逸蓁
-        'teacher-_e5_a3_ab_e9_a0_a1@nypspassport.local'  // 士頡
-      ];
+      return email == 'teacher@nypspassport.local';
     }
 
     // ---------------------------------------------------------------
@@ -54,7 +49,7 @@ service cloud.firestore {
     // ---------------------------------------------------------------
     // /teachers/{uid} : 老師帳號資料
     // 允許使用者讀取「自己」對應的文件 (用來判斷登入者是不是老師)。
-    // 只有一蓁/逸蓁/士頡這三個帳號可以自動建立 (第一次登入時)。
+    // 只有這一個通用老師帳號可以自動建立 (第一次登入時)。
     // ---------------------------------------------------------------
     match /teachers/{uid} {
       allow read: if isSelf(uid);
